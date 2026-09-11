@@ -1,0 +1,68 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime SQLite databases & local state
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# Runtime generated directories & logs
+data/evidence/
+data/backups/
+data/logs/
+*.log
+
+# Personal data, face images & webcam captures
+data/faces/
+data/demo_faces/
+data/webcam_captures/
+data/webcam_*.jpg
+data/sample_mattress_*.jpg
+
+# Large video assets (kept locally, not tracked in git)
+data/videos/
+
+# Research & experimental outputs
+data/research/
+scratch/
+runs/
+
+# Dataset cache files & raw intermediate frames
+data/datasets/**/labels/*.cache
+data/datasets/**/raw_frames/
+data/datasets/warehouse_yolo26/
+data/datasets/watchguard_unified_84/
+data/datasets/watchguard_assets_v1/
+
+# Frontend dependencies & build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Test & coverage artifacts
+*.tmp
+*.temp
+*.bak
+*.old
+*.out
+*out.txt
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editor / OS artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
