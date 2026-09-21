@@ -27,7 +27,51 @@ Built for the **Godrej Enterprises Group "AI Video Intelligence for Warehouse Ha
 
 ## 🌟 Modern Architecture & Pipeline
 
-CareGuard AI features a decoupled, high-performance web architecture combining a **FastAPI backend** for real-time computer vision and temporal behaviour analytics with a **React + TypeScript + Tailwind CSS** single-page web application.
+CareGuard AI features a decoupled, high-performance architecture combining a **FastAPI backend** for real-time computer vision and temporal behaviour analytics with a **React + TypeScript + Tailwind CSS** single-page web application.
+
+```mermaid
+flowchart TD
+    subgraph Ingestion["1. Video Ingestion Layer"]
+        CAM["CCTV Camera Feeds (RTSP / USB)"]
+        VID["Uploaded Video Files (MP4 / AVI)"]
+        CM["CameraManager / Frame Ingestion Engine"]
+        CAM --> CM
+        VID --> CM
+    end
+
+    subgraph Perception["2. AI Perception & Object Tracking Layer"]
+        YOLO["YOLO26n Perception Model (Person, Product, Pallet, MHE)"]
+        TRACKER["Warehouse ByteTrack / Kalman Filter Tracker"]
+        CM --> YOLO
+        YOLO -->|BBoxes & Classes| TRACKER
+        TRACKER -->|Persistent Entity Trajectories| BE
+    end
+
+    subgraph Intelligence["3. Temporal Behaviour & Risk Engine Layer"]
+        BE["Temporal Behaviour Engine (State Machines & Kinematics)"]
+        RISK["Risk Evaluation Engine (GREEN / YELLOW / ORANGE / RED)"]
+        EVID["Evidence Capture & Snapshot Generator"]
+        BE -->|Detected Handling Deviation| RISK
+        RISK -->|Verified High-Risk Event| EVID
+    end
+
+    subgraph Persistence["4. Storage & Intelligence Layer"]
+        DB[("SQLite Database (careguard.db)")]
+        COPILOT["Warehouse Safety Copilot (Grounded Assistant)"]
+        EVID -->|Store Record & Snapshots| DB
+        DB <--> COPILOT
+    end
+
+    subgraph Serving["5. API & Presentation Layer"]
+        FASTAPI["FastAPI Web Framework (REST + MJPEG Video Streaming)"]
+        REACT["React 18 + TypeScript + Tailwind CSS Frontend"]
+        DB --> FASTAPI
+        COPILOT --> FASTAPI
+        FASTAPI -->|SSE / REST / MJPEG| REACT
+    end
+```
+
+### Project Structure
 
 ```
 godrej_watchguard/
@@ -41,17 +85,17 @@ godrej_watchguard/
 │   ├── evidence/                             # Incident snapshots with bounding boxes and trajectory trails
 │   ├── models/                               # Deep learning weights (YOLO26n Warehouse PyTorch & ONNX)
 │   ├── videos/                               # Warehouse CCTV video clips (.mp4, .avi)
-│   └── watchguard.db                         # SQLite database (with warehouse_behaviour_events table)
+│   └── careguard.db                          # SQLite database (with warehouse_behaviour_events table)
 ├── frontend/                                 # React + TypeScript + Tailwind Web Application
 │   ├── src/
 │   │   ├── components/                       # Reusable UI components (Header, Sidebar, Badge, Card, Modal)
 │   │   ├── pages/                            # 7 Core Product Views:
-│   │   │   ├── OverviewPage.tsx              # Command Center (<5s situational awareness & health score)
-│   │   │   ├── LiveMonitoringPage.tsx        # Real-time Video Stream with Kinematics, 4 HUD Modes & 3-Tier Event Details
+│   │   │   ├── OverviewPage.tsx              # Command Center (KPIs, recent events, 5-stage pipeline)
+│   │   │   ├── LiveMonitoringPage.tsx        # Real-time Video Stream with Kinematics, 4 HUD Modes & Clean View
 │   │   │   ├── IncidentsPage.tsx             # Audit log, evidence snapshots, filters & supervisor actions
 │   │   │   ├── AnalyticsPage.tsx             # Behaviour breakdowns, hourly trends & bay comparisons
 │   │   │   ├── PreventionPage.tsx            # Prevention metrics, coaching opportunities & damage avoided
-│   │   │   ├── AssistantPage.tsx             # CareGuard Assistant (copilot querying real database telemetry)
+│   │   │   ├── AssistantPage.tsx             # CareGuard Safety Copilot (querying real database telemetry)
 │   │   │   └── SettingsPage.tsx              # Bay zones, kinematic thresholds & video feeds
 │   │   ├── services/api.ts                   # Typed API client connecting to FastAPI backend
 │   │   └── types/warehouse.ts                # TypeScript domain models and interfaces
@@ -80,22 +124,22 @@ godrej_watchguard/
 │   │   ├── warehouse_risk_policy.py          # Deterministic risk scoring & Responsible AI policy
 │   │   ├── warehouse_class_mapper.py         # Standardized class taxonomy & confidence boundaries
 │   │   ├── object_detection.py               # Dual-Head YOLO26n Warehouse Object Detector
-│   │   └── copilot_reasoner.py               # AI supervisor reasoner with strict guardrails
+│   │   ├── warehouse_safety_copilot.py       # Data-Grounded Safety Copilot reasoning engine
+│   │   └── copilot_reasoner.py               # Supervisor reasoner with telemetry guardrails
 │   └── database/
 │       ├── db_manager.py                     # SQLite connection manager & warehouse event analytics CRUD
 │       └── models.py                         # Structured dataclass records
-    ├── test_action_sequencing_and_semantic_arbitration.py # Multi-action sequencing (DROP->KICK->DRAG) & semantic arbitration
-    ├── test_product_validation_and_background_rejection.py # Low-confidence ceiling rejection & anti-teleportation
-    ├── test_product_kicking_and_carrying.py    # Carrying state immunity & foot approach prerequisites
-    ├── test_product_localization_persistence.py # Background rejection & track expiration persistence
-    ├── test_product_localization_and_kick.py    # Spatial continuity, kick detection & geometry isolation
+└── tests/                                    # Automated Test Suites (96 tests across 9 modules)
     ├── test_all_10_warehouse_behaviours.py      # Verification for all 10 core warehouse behaviours
+    ├── test_product_localization_and_kick.py    # Spatial continuity, kick detection & geometry isolation
     ├── test_event_semantic_gating_and_pause.py  # Pause persistence, tight crop & stacking semantic gating
     ├── test_priority_corrections.py             # 5 sequential uploads, stepping detection, multi-product tracking
+    ├── test_safety_copilot.py                   # Telemetry context grounding & anti-hallucination suite
     ├── test_api_endpoints.py                    # FastAPI TestClient endpoint verification
-    ├── test_warehouse_video_pipeline.py         # Video file ingestion, looping, and pacing
-    ├── test_warehouse_tracker.py                # Multi-object tracking, kinematics & spatial associations
-    └── test_warehouse_db_integration.py         # Database logging and querying
+    ├── test_action_sequencing_and_semantic_arbitration.py # Multi-action sequencing & semantic arbitration
+    ├── test_product_validation_and_background_rejection.py # Low-confidence ceiling rejection & anti-teleportation
+    ├── test_product_kicking_and_carrying.py    # Carrying state immunity & foot approach prerequisites
+    └── test_product_localization_persistence.py # Background rejection & track expiration persistence
 ```
 
 ---
@@ -148,12 +192,12 @@ CareGuard AI incorporates enterprise-grade perception safeguards engineered spec
 
 ## 🖥️ 7 Dedicated Product Views
 
-1. **Command Center (Overview)**: Immediate situational awareness in $<5	ext{s}$. Displays Warehouse Handling Quality Score (0–100), active risk level breakdown, active loading bay risk cards, and top 5 risk indicators.
-2. **Live Monitoring**: Real-time video stream with 4 selectable visual overlay modes (`Clean View`, `Detection View`, `Tracking View`, `Diagnostics View`), fullscreen toggle, and a dedicated **Current Event Panel** with 3-tier Responsible AI explanations.
-3. **Incidents & Evidence**: Searchable, filterable audit log with severity filters, loading bay filters, interactive inspection modal with evidence snapshots, kinematics, and supervisor corrective action logger.
-4. **Behaviour Analytics**: Comprehensive charts powered by Recharts comparing all handling behaviours, 24-hour incident trends, and risk distribution across loading bays.
-5. **Prevention Insights**: Proactive operational intelligence tracking estimated damage events prevented, safe-to-risky handling ratio, and targeted coaching/training recommendations.
-6. **CareGuard Assistant**: Natural-language conversational supervisor copilot grounded in actual SQLite warehouse incident telemetry and SOP guidelines.
+1. **Command Center (Overview)**: Immediate situational awareness in $<5\text{s}$. Displays the 5 Core Operational KPIs with explicit time scopes (**Handling Quality** [Last 20 events], **Active Safety Events** [Unresolved incidents], **High-Risk Events** [Current session], **Unique Cargo Items Seen** [Logged session tracks], and **Safe Handling %** [Current session]), live operational pipeline, and recent incidents table.
+2. **Live Monitoring**: Real-time video stream with Clean View and Diagnostics HUD modes, live track counts, and a dedicated **Current Event Panel** with 3-tier Responsible AI explanations (*What Happened, Why It Matters, What To Do*).
+3. **Incidents & Evidence**: Searchable, filterable audit log with severity filters, loading bay filters, resolution status badges (`Resolved` vs `Open`), interactive evidence snapshots, kinematics, and supervisor corrective action logger.
+4. **Behaviour Analytics**: Comprehensive charts comparing all 10 warehouse handling behaviours, hourly risk trends, and operational shifts.
+5. **Prevention Insights**: Evidence-backed operational intelligence with practical floor fixes, training recommendations, and damage prevention tracking.
+6. **Safety Copilot**: Data-grounded AI assistant powered by live telemetry and kinematic vectors in `careguard.db`, answering queries with zero hallucination.
 7. **Settings & Configuration**: Warehouse bay zone management, velocity/impact kinematic threshold tuning, video source selector, and system diagnostic status.
 
 ---
