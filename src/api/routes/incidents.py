@@ -51,15 +51,7 @@ def get_incident_details(event_id: str):
     if not record:
         raise HTTPException(status_code=404, detail=f"Incident {event_id} not found.")
 
-    res = record.to_dict()
-    # Provide standard loading bay tag based on product or zone metadata
-    res["loading_bay"] = "General Staging Bay (Bay 1)"
-    if "WALKWAY" in record.behaviour_type:
-        res["loading_bay"] = "Pedestrian Transit Corridor (Bay 2)"
-    elif "STACK" in record.behaviour_type:
-        res["loading_bay"] = "Racking & Stacking Area (Bay 3)"
-
-    return res
+    return record.to_dict()
 
 
 @router.post("/{event_id}/action")
@@ -74,8 +66,10 @@ def log_supervisor_action(
     if not record:
         raise HTTPException(status_code=404, detail=f"Incident {event_id} not found.")
 
+    backend.db.log_warehouse_event_action(event_id, action_note, supervisor_name)
+
     return {
-        "status": "ok",
+        "status": "RESOLVED",
         "event_id": event_id,
         "action_recorded": action_note,
         "supervisor": supervisor_name,

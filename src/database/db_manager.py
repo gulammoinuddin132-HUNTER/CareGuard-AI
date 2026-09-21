@@ -198,23 +198,29 @@ class DatabaseManager:
                         severity_factors_json TEXT,
                         evidence_frame_path TEXT,
                         video_source TEXT,
+                        status TEXT NOT NULL DEFAULT 'UNRESOLVED',
+                        operator_action TEXT,
+                        resolved_at TEXT,
                         metadata_json TEXT
                     )
                     """
                 )
 
-                # Ensure severity columns exist in existing databases (migration)
+                # Ensure severity and status columns exist in existing databases (migration)
                 try:
-                    cursor.execute("SELECT severity_reason, severity_factors_json FROM warehouse_behaviour_events LIMIT 1")
+                    cursor.execute("SELECT severity_reason, severity_factors_json, status, operator_action, resolved_at FROM warehouse_behaviour_events LIMIT 1")
                 except sqlite3.OperationalError:
-                    try:
-                        cursor.execute("ALTER TABLE warehouse_behaviour_events ADD COLUMN severity_reason TEXT")
-                    except Exception:
-                        pass
-                    try:
-                        cursor.execute("ALTER TABLE warehouse_behaviour_events ADD COLUMN severity_factors_json TEXT")
-                    except Exception:
-                        pass
+                    for col_name, col_type in [
+                        ("severity_reason", "TEXT"),
+                        ("severity_factors_json", "TEXT"),
+                        ("status", "TEXT DEFAULT 'UNRESOLVED'"),
+                        ("operator_action", "TEXT"),
+                        ("resolved_at", "TEXT"),
+                    ]:
+                        try:
+                            cursor.execute(f"ALTER TABLE warehouse_behaviour_events ADD COLUMN {col_name} {col_type}")
+                        except Exception:
+                            pass
 
                 # Create helpful indexes for performance
                 cursor.execute(
@@ -1179,6 +1185,9 @@ class DatabaseManager:
         severity_factors: Optional[Dict[str, Any]] = None,
         evidence_frame_path: Optional[str] = None,
         video_source: Optional[str] = None,
+        status: str = "UNRESOLVED",
+        operator_action: Optional[str] = None,
+        resolved_at: Optional[str] = None,
         metadata_json: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> int:
@@ -1200,8 +1209,10 @@ class DatabaseManager:
                         observed_behaviour, potential_risk, recommended_action,
                         product_track_id, person_track_id,
                         severity_reason, severity_factors_json,
-                        evidence_frame_path, video_source, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        evidence_frame_path, video_source,
+                        status, operator_action, resolved_at,
+                        metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         event_id,
@@ -1220,11 +1231,39 @@ class DatabaseManager:
                         severity_factors_json,
                         evidence_frame_path,
                         video_source,
+                        status,
+                        operator_action,
+                        resolved_at,
                         metadata_json,
                     ),
                 )
                 conn.commit()
                 return cursor.lastrowid
+
+    def log_warehouse_event_action(
+        self,
+        event_id: str,
+        action_note: str,
+        supervisor_name: Optional[str] = None,
+    ) -> bool:
+        """Marks a warehouse event as RESOLVED with supervisor action notes."""
+        now_str = datetime.now().isoformat()
+        full_note = f"[{supervisor_name}] {action_note}" if supervisor_name else action_note
+        with self._lock:
+            with self._connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE warehouse_behaviour_events
+                    SET status = 'RESOLVED',
+                        operator_action = ?,
+                        resolved_at = ?
+                    WHERE event_id = ? OR id = ?
+                    """,
+                    (full_note, now_str, event_id, event_id),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
 
     def get_recent_warehouse_events(
         self,
@@ -1273,6 +1312,9 @@ class DatabaseManager:
                             severity_factors_json=row["severity_factors_json"] if "severity_factors_json" in row_keys else None,
                             evidence_frame_path=row["evidence_frame_path"],
                             video_source=row["video_source"],
+                            status=row["status"] if "status" in row_keys and row["status"] else "UNRESOLVED",
+                            operator_action=row["operator_action"] if "operator_action" in row_keys else None,
+                            resolved_at=row["resolved_at"] if "resolved_at" in row_keys else None,
                             metadata_json=row["metadata_json"],
                         )
                     )
@@ -1321,6 +1363,9 @@ class DatabaseManager:
                     severity_factors_json=row["severity_factors_json"] if "severity_factors_json" in row_keys else None,
                     evidence_frame_path=row["evidence_frame_path"],
                     video_source=row["video_source"],
+                    status=row["status"] if "status" in row_keys and row["status"] else "UNRESOLVED",
+                    operator_action=row["operator_action"] if "operator_action" in row_keys else None,
+                    resolved_at=row["resolved_at"] if "resolved_at" in row_keys else None,
                     metadata_json=row["metadata_json"],
                 )
 
@@ -1334,6 +1379,14 @@ class DatabaseManager:
                 cursor.execute("SELECT COUNT(*) FROM warehouse_behaviour_events")
                 total_events = cursor.fetchone()[0]
 
+                # Active / Unresolved Safety Events
+                cursor.execute("SELECT COUNT(*) FROM warehouse_behaviour_events WHERE status = 'UNRESOLVED' OR status IS NULL")
+                active_safety_events = cursor.fetchone()[0]
+
+                # Resolved Safety Events
+                cursor.execute("SELECT COUNT(*) FROM warehouse_behaviour_events WHERE status = 'RESOLVED'")
+                resolved_events = cursor.fetchone()[0]
+
                 cursor.execute("SELECT COUNT(*) FROM warehouse_behaviour_events WHERE event_id LIKE 'SIM-%'")
                 simulated_events_count = cursor.fetchone()[0]
                 real_events_count = total_events - simulated_events_count
@@ -1346,12 +1399,26 @@ class DatabaseManager:
                 orange_count = risk_counts.get("ORANGE", 0)
                 red_count = risk_counts.get("RED", 0)
 
-                # Handling Quality Score (100 baseline - weighted risk penalties)
+                # High Risk Events = RED + ORANGE
+                high_risk_events = red_count + orange_count
+
+                # Dynamic Rate-Based Handling Quality Score over recent events window (W <= 20)
                 if total_events == 0:
                     handling_quality_score = 100
                 else:
-                    penalties = (yellow_count * 2.0) + (orange_count * 5.0) + (red_count * 10.0)
-                    handling_quality_score = max(0, min(100, int(100 - penalties)))
+                    cursor.execute(
+                        "SELECT risk_level FROM warehouse_behaviour_events ORDER BY start_timestamp DESC, event_id DESC LIMIT 20"
+                    )
+                    recent_risks = [r[0] for r in cursor.fetchall()]
+                    window_size = len(recent_risks)
+                    if window_size == 0:
+                        handling_quality_score = 100
+                    else:
+                        # Severity weights: GREEN=0.0, YELLOW=0.15, ORANGE=0.40, RED=0.85
+                        weights = {"GREEN": 0.0, "YELLOW": 0.15, "ORANGE": 0.40, "RED": 0.85}
+                        total_penalty_weight = sum(weights.get(rl, 0.0) for rl in recent_risks)
+                        avg_penalty_ratio = total_penalty_weight / window_size
+                        handling_quality_score = max(0, min(100, int(round(100.0 * (1.0 - avg_penalty_ratio)))))
 
                 # Overall system status (Critical/High/Attention/Normal)
                 if red_count > 0:
@@ -1370,24 +1437,27 @@ class DatabaseManager:
                 top_b_row = cursor.fetchone()
                 top_risky_behaviour = top_b_row[0] if top_b_row else "None"
 
-                # Unique entities/items observed in logged events
+                # Historical unique units seen in session
                 cursor.execute("SELECT COUNT(DISTINCT product_track_id) FROM warehouse_behaviour_events WHERE product_track_id IS NOT NULL")
                 unique_entities = cursor.fetchone()[0]
-                items_monitored = max(unique_entities, total_events) if total_events > 0 else 0
+                units_seen = unique_entities if unique_entities > 0 else (1 if total_events > 0 else 0)
 
-                # Risk-Free Observation Ratio
+                # Safe Handling Ratio (% of total events operating without RED/ORANGE risk)
                 if total_events == 0:
                     risk_free_observation_ratio = 100.0
                 else:
-                    risk_free_observation_ratio = max(0.0, min(100.0, round(((total_events - (red_count + orange_count)) / max(total_events, 1)) * 100, 1)))
+                    risk_free_observation_ratio = max(0.0, min(100.0, round(((total_events - high_risk_events) / max(total_events, 1)) * 100, 1)))
 
                 return {
                     "total_events": total_events,
+                    "active_safety_events": active_safety_events,
+                    "resolved_events": resolved_events,
                     "real_events_count": real_events_count,
                     "simulated_events_count": simulated_events_count,
-                    "items_monitored": items_monitored,
+                    "units_seen": units_seen,
+                    "items_monitored": units_seen,
                     "risk_free_observation_ratio": risk_free_observation_ratio,
-                    "at_risk_events": red_count + orange_count,
+                    "at_risk_events": high_risk_events,
                     "potentially_protected_units": red_count + orange_count + yellow_count,
                     "risk_distribution": {
                         "GREEN": green_count,
@@ -1404,11 +1474,12 @@ class DatabaseManager:
                     "highest_risk_bay": "General Staging Bay (Bay 1)" if total_events > 0 else "All Zones Operating Within Normal Boundaries",
                     "active_stream_status": "ONLINE",
                     "kpi_definitions": {
-                        "handling_quality_index": "Severity-weighted operational index based on recorded handling-risk events (100 baseline: RED=-10, ORANGE=-5, YELLOW=-2, GREEN=0).",
-                        "items_monitored": "Count of unique cargo items and warehouse entities observed in the active session.",
-                        "risk_events": "Total handling-risk events recorded in the current session/database.",
-                        "high_critical_events": "Count of RED (Critical) and ORANGE (High Risk) safety violations requiring immediate supervisor intervention.",
-                        "risk_free_observation_ratio": "Share of monitored handling observations operating within safe kinematic boundaries.",
+                        "handling_quality_index": "Rolling rate-based operational quality index based on recent 20 handling events (GREEN=0, YELLOW=0.15, ORANGE=0.40, RED=0.85).",
+                        "active_safety_events": "Count of open, unresolved damage prevention events awaiting supervisor review.",
+                        "total_events": "Total cumulative safety events recorded in current database session.",
+                        "units_seen": "Count of unique cargo items and warehouse entities observed across logged events.",
+                        "high_critical_events": "Count of RED (Critical) and ORANGE (High Risk) safety violations.",
+                        "risk_free_observation_ratio": "Percentage of total handling events operating within safe boundaries (Current session).",
                     },
                 }
 
@@ -1483,118 +1554,134 @@ class DatabaseManager:
                 return list(hours_dict.values())
 
     def get_warehouse_bay_stats(self) -> List[Dict[str, Any]]:
-        """Returns risk and incident breakdown across warehouse loading bays and zones."""
+        """Returns risk and incident breakdown across warehouse loading bays and zones grounded in real events."""
         with self._lock:
             with self._connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT risk_level, COUNT(*) FROM warehouse_behaviour_events GROUP BY risk_level")
-                risk_map = {r[0]: r[1] for r in cursor.fetchall()}
-                total = sum(risk_map.values())
+                cursor.execute("SELECT behaviour_type, risk_level, metadata_json FROM warehouse_behaviour_events")
+                rows = cursor.fetchall()
+                total = len(rows)
 
-                if total == 0:
-                    return [
-                        {
-                            "bay_id": "BAY-1",
-                            "name": "General Staging Bay",
-                            "zone_type": "STAGING",
-                            "health_score": 100,
-                            "risk_score": 100,
-                            "incident_count": 0,
-                            "status": "HEALTHY",
-                            "primary_issue": "Normal Safe Operations",
-                        },
-                        {
-                            "bay_id": "BAY-2",
-                            "name": "Pedestrian Transit Corridor",
-                            "zone_type": "WALKWAY",
-                            "health_score": 100,
-                            "risk_score": 100,
-                            "incident_count": 0,
-                            "status": "HEALTHY",
-                            "primary_issue": "Corridor Clear & Accessible",
-                        },
-                        {
-                            "bay_id": "BAY-3",
-                            "name": "Heavy Storage Racks",
-                            "zone_type": "RACKING",
-                            "health_score": 100,
-                            "risk_score": 100,
-                            "incident_count": 0,
-                            "status": "HEALTHY",
-                            "primary_issue": "Stable Stack Alignments",
-                        },
-                        {
-                            "bay_id": "BAY-4",
-                            "name": "Dispatch Dock Door A",
-                            "zone_type": "DISPATCH",
-                            "health_score": 100,
-                            "risk_score": 100,
-                            "incident_count": 0,
-                            "status": "HEALTHY",
-                            "primary_issue": "Pallet Demarcations Maintained",
-                        },
-                    ]
-
-                b1_incidents = int(total * 0.45)
-                b2_incidents = int(total * 0.30)
-                b3_incidents = int(total * 0.15)
-                b4_incidents = total - (b1_incidents + b2_incidents + b3_incidents)
-
-                b1_health = max(0, 100 - b1_incidents * 8)
-                b2_health = max(0, 100 - b2_incidents * 8)
-                b3_health = max(0, 100 - b3_incidents * 8)
-                b4_health = max(0, 100 - b4_incidents * 8)
-
-                return [
-                    {
+                # Initialize standard bays
+                bay_data = {
+                    "BAY-1": {
                         "bay_id": "BAY-1",
-                        "name": "General Staging Bay",
+                        "name": "Staging Bay (Bay 1)",
                         "zone_type": "STAGING",
-                        "health_score": b1_health,
-                        "risk_score": b1_health,
-                        "incident_count": b1_incidents,
-                        "status": "ATTENTION_REQUIRED" if b1_health < 85 else "NORMAL",
-                        "primary_issue": "Manual Carton Dragging & Heavy Carries" if b1_incidents > 0 else "Normal Safe Operations",
+                        "incidents": 0,
+                        "critical": 0,
+                        "high": 0,
+                        "attention": 0,
+                        "behaviours": {},
                     },
-                    {
+                    "BAY-2": {
                         "bay_id": "BAY-2",
-                        "name": "Pedestrian Transit Corridor",
+                        "name": "Transit Corridor (Bay 2)",
                         "zone_type": "WALKWAY",
-                        "health_score": b2_health,
-                        "risk_score": b2_health,
-                        "incident_count": b2_incidents,
-                        "status": "MODERATE_RISK" if b2_health < 85 else "NORMAL",
-                        "primary_issue": "Temporary Walkway Dwell & Pallet Protrusion" if b2_incidents > 0 else "Corridor Clear",
+                        "incidents": 0,
+                        "critical": 0,
+                        "high": 0,
+                        "attention": 0,
+                        "behaviours": {},
                     },
-                    {
+                    "BAY-3": {
                         "bay_id": "BAY-3",
-                        "name": "Heavy Storage Racks",
+                        "name": "Storage Racking (Bay 3)",
                         "zone_type": "RACKING",
-                        "health_score": b3_health,
-                        "risk_score": b3_health,
-                        "incident_count": b3_incidents,
-                        "status": "SAFE" if b3_health >= 85 else "MODERATE_RISK",
-                        "primary_issue": "Stacking Height Adjustments" if b3_incidents > 0 else "Stable Stacks",
+                        "incidents": 0,
+                        "critical": 0,
+                        "high": 0,
+                        "attention": 0,
+                        "behaviours": {},
                     },
-                    {
+                    "BAY-4": {
                         "bay_id": "BAY-4",
-                        "name": "Dispatch Dock Door A",
+                        "name": "Dispatch Dock (Bay 4)",
                         "zone_type": "DISPATCH",
-                        "health_score": b4_health,
-                        "risk_score": b4_health,
-                        "incident_count": b4_incidents,
-                        "status": "NORMAL",
-                        "primary_issue": "Pallet Demarcations Maintained",
+                        "incidents": 0,
+                        "critical": 0,
+                        "high": 0,
+                        "attention": 0,
+                        "behaviours": {},
                     },
-                ]
+                }
+
+                import json
+                for row in rows:
+                    b_type = str(row[0]).upper()
+                    risk = str(row[1]).upper()
+                    meta = {}
+                    if row[2]:
+                        try:
+                            meta = json.loads(row[2])
+                        except Exception:
+                            pass
+                    
+                    assigned_bay = "BAY-1"
+                    if "WALKWAY" in b_type or "OUTSIDE" in b_type:
+                        assigned_bay = "BAY-2"
+                    elif "STACK" in b_type or "RACK" in b_type:
+                        assigned_bay = "BAY-3"
+                    elif "PALLET" in b_type or "LOADING" in b_type:
+                        assigned_bay = "BAY-4"
+                    else:
+                        assigned_bay = "BAY-1"
+
+                    bay_data[assigned_bay]["incidents"] += 1
+                    if risk == "RED":
+                        bay_data[assigned_bay]["critical"] += 1
+                    elif risk == "ORANGE":
+                        bay_data[assigned_bay]["high"] += 1
+                    elif risk == "YELLOW":
+                        bay_data[assigned_bay]["attention"] += 1
+                    
+                    bay_data[assigned_bay]["behaviours"][b_type] = bay_data[assigned_bay]["behaviours"].get(b_type, 0) + 1
+
+                results = []
+                for b_key in ["BAY-1", "BAY-2", "BAY-3", "BAY-4"]:
+                    b = bay_data[b_key]
+                    cnt = b["incidents"]
+                    if cnt == 0:
+                        health = 100
+                        risk_score = 0
+                        status = "NORMAL"
+                        primary_issue = "No safety incidents recorded"
+                    else:
+                        penalty = (b["critical"] * 25) + (b["high"] * 15) + (b["attention"] * 5)
+                        health = max(0, min(100, 100 - penalty))
+                        risk_score = 100 - health
+                        if b["critical"] > 0:
+                            status = "CRITICAL"
+                        elif b["high"] > 0:
+                            status = "HIGH RISK"
+                        elif b["attention"] > 0:
+                            status = "ATTENTION"
+                        else:
+                            status = "NORMAL"
+                        
+                        top_b = max(b["behaviours"].items(), key=lambda x: x[1])[0] if b["behaviours"] else "General"
+                        primary_issue = top_b.replace("_", " ").title()
+
+                    results.append({
+                        "bay_id": b["bay_id"],
+                        "name": b["name"],
+                        "zone_type": b["zone_type"],
+                        "health_score": health,
+                        "risk_score": risk_score,
+                        "incident_count": cnt,
+                        "status": status,
+                        "primary_issue": primary_issue,
+                    })
+
+                return results
 
     def get_warehouse_shift_stats(self) -> List[Dict[str, Any]]:
         """
         Computes shift-level metrics from timestamped incident records.
         Shifts:
           - Shift A (06:00 - 14:00): Morning Staging
-          - Shift B (14:00 - 22:00): Peak Unloading & Ingestion
-          - Shift C (22:00 - 06:00): Night Dispatch & Transit
+          - Shift B (14:00 - 22:00): Afternoon Handling
+          - Shift C (22:00 - 06:00): Night Dispatch
         """
         with self._lock:
             with self._connection() as conn:
@@ -1643,13 +1730,15 @@ class DatabaseManager:
                     if tot == 0:
                         quality = 100
                         safe_ratio = 100.0
-                        status = "OPTIMAL"
+                        status = "NORMAL"
+                        note = "No incidents recorded in this shift."
                     else:
                         penalty = (s["critical"] * 10) + (s["high"] * 5) + (s["yellow"] * 2)
                         quality = max(0, min(100, int(100 - penalty)))
                         risky = s["critical"] + s["high"]
                         safe_ratio = max(0.0, min(100.0, round(((tot - risky) / max(tot, 1)) * 100, 1)))
-                        status = "OPTIMAL" if quality >= 85 else ("ATTENTION" if quality >= 70 else "CRITICAL")
+                        status = "CRITICAL" if s["critical"] > 0 else ("HIGH RISK" if s["high"] > 0 else "ATTENTION")
+                        note = f"{tot} event(s) recorded in active session."
 
                     results.append({
                         "shift": s["name"],
@@ -1661,12 +1750,12 @@ class DatabaseManager:
                         "handling_quality_score": quality,
                         "risk_free_ratio": f"{safe_ratio:.1f}%",
                         "status": status,
-                        "data_note": "Shift metrics are calculated from timestamped incident records.",
+                        "data_note": note,
                     })
                 return results
 
     def get_warehouse_prevention_metrics(self) -> Dict[str, Any]:
-        """Computes damage prevention statistics, structured coaching insights, and equipment allocation recommendations."""
+        """Computes damage prevention statistics, structured coaching insights, and equipment allocation recommendations strictly from real data."""
         summary = self.get_warehouse_stats_summary()
         total = summary["total_events"]
         risky = summary["critical_events"] + summary["high_risk_events"]
@@ -1677,94 +1766,143 @@ class DatabaseManager:
             safe_ratio = 100.0
             damage_prevented = 0
             interventions = 0
+            structured_recommendations = []
+            training_opportunities = []
+            recurring_risk_patterns = []
         else:
             safe_ratio = max(0.0, min(100.0, round(((total - risky) / max(total, 1)) * 100, 1)))
             damage_prevented = risky
             interventions = total
 
-        # Suggest equipment deployment strictly derived from observed dragging/manual carry counts
-        trolley_suggestion = max(1, min(4, (attention + risky) // 3)) if total > 0 else 1
+            # Analyze real events to construct truthful recommendations
+            with self._lock:
+                with self._connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT behaviour_type, COUNT(*) FROM warehouse_behaviour_events GROUP BY behaviour_type")
+                    counts_by_type = {r[0]: r[1] for r in cursor.fetchall()}
+
+            structured_recommendations = []
+            training_opportunities = []
+            recurring_risk_patterns = []
+
+            # 1. Product Drops
+            drop_count = counts_by_type.get("PRODUCT_DROPPED", 0) + counts_by_type.get("MATERIAL_PUSHED_THROWN", 0)
+            if drop_count > 0:
+                structured_recommendations.append({
+                    "id": "REC-DROP",
+                    "what_happened": "Product dropped or released from height onto the floor.",
+                    "where": "Staging Bay (Bay 1)",
+                    "when": "Recent handling activity",
+                    "why_it_matters": "Direct floor impact can cause packaging rupture and internal goods damage.",
+                    "what_to_change": "Inspect dropped items before dispatch and review two-hand secure grip procedures.",
+                    "expected_operational_effect": "Prevents damaged goods from reaching shipping dock.",
+                    "priority": "CRITICAL",
+                    "equipment_tag": "Inspection & Grip",
+                })
+                training_opportunities.append({
+                    "id": "TRN-DROP",
+                    "title": "Secure Grip & Drop Prevention Protocol",
+                    "priority": "CRITICAL",
+                    "reason": f"{drop_count} product drop event(s) recorded in active session.",
+                    "target_bay": "Staging Bay (Bay 1)",
+                })
+                recurring_risk_patterns.append({
+                    "pattern": "Product drops during manual transfer",
+                    "frequency": f"{drop_count} event(s) recorded",
+                    "zone": "Staging Bay (Bay 1)",
+                })
+
+            # 2. Product Dragging / Heavy Carry
+            drag_count = counts_by_type.get("PRODUCT_DRAGGED", 0) + counts_by_type.get("HANDLED_WITHOUT_EQUIPMENT", 0)
+            if drag_count > 0:
+                trolley_needed = max(1, min(4, drag_count // 2 + 1))
+                structured_recommendations.append({
+                    "id": "REC-DRAG",
+                    "what_happened": "Manual carton dragging or heavy carry without equipment.",
+                    "where": "Staging Bay (Bay 1)",
+                    "when": "Recent handling activity",
+                    "why_it_matters": "Dragging cartons causes base friction, seam tearing, and bottom package damage.",
+                    "what_to_change": f"Stage {trolley_needed} hand trolley(s) or pallet jack near the dock.",
+                    "expected_operational_effect": "Eliminates floor friction wear and reduces worker fatigue.",
+                    "priority": "HIGH" if drag_count >= 3 else "MEDIUM",
+                    "equipment_tag": "Trolley Deployment",
+                })
+                training_opportunities.append({
+                    "id": "TRN-DRAG",
+                    "title": "Material Handling Equipment & Trolley Usage",
+                    "priority": "HIGH",
+                    "reason": f"{drag_count} dragging/manual carry event(s) recorded.",
+                    "target_bay": "Staging Bay (Bay 1)",
+                })
+                recurring_risk_patterns.append({
+                    "pattern": "Manual floor dragging without equipment",
+                    "frequency": f"{drag_count} event(s) recorded",
+                    "zone": "Staging Bay (Bay 1)",
+                })
+
+            # 3. Stacking Issues
+            stack_count = counts_by_type.get("INCORRECT_STACKING", 0) + counts_by_type.get("UNSTABLE_STACKING", 0) + counts_by_type.get("UNSAFE_LOADING_SEQUENCE", 0)
+            if stack_count > 0:
+                structured_recommendations.append({
+                    "id": "REC-STACK",
+                    "what_happened": "Unstable or improper box stacking in storage columns.",
+                    "where": "Storage Racking (Bay 3)",
+                    "when": "Recent stacking activity",
+                    "why_it_matters": "Placing heavy boxes on smaller bases causes column lean and stack collapse.",
+                    "what_to_change": "Stack heaviest and widest boxes at the bottom; unstack strictly top-to-bottom.",
+                    "expected_operational_effect": "Stabilizes carton columns and prevents crushing lower packages.",
+                    "priority": "HIGH",
+                    "equipment_tag": "Stacking Order",
+                })
+                training_opportunities.append({
+                    "id": "TRN-STACK",
+                    "title": "Stacking Order & Column Stability Rules",
+                    "priority": "HIGH",
+                    "reason": f"{stack_count} stacking deviation event(s) recorded.",
+                    "target_bay": "Storage Racking (Bay 3)",
+                })
+                recurring_risk_patterns.append({
+                    "pattern": "Unstable box stacking and column tilt",
+                    "frequency": f"{stack_count} event(s) recorded",
+                    "zone": "Storage Racking (Bay 3)",
+                })
+
+            # 4. Obstructions
+            obstruction_count = counts_by_type.get("PLACED_OUTSIDE_DESIGNATED_AREA", 0) + counts_by_type.get("PALLET_POSITIONED_INCORRECTLY", 0)
+            if obstruction_count > 0:
+                structured_recommendations.append({
+                    "id": "REC-AISLE",
+                    "what_happened": "Package or pallet placed in transit walkway.",
+                    "where": "Transit Corridor (Bay 2)",
+                    "when": "Recent transit activity",
+                    "why_it_matters": "Aisle obstructions create equipment collision risks and block pedestrian paths.",
+                    "what_to_change": "Clear transit walkways immediately and keep pallets within yellow bay lines.",
+                    "expected_operational_effect": "Preserves full aisle clearance for safe equipment movement.",
+                    "priority": "MEDIUM",
+                    "equipment_tag": "Aisle Clearance",
+                })
+                training_opportunities.append({
+                    "id": "TRN-AISLE",
+                    "title": "Aisle Clearance & Pallet Boundary Rules",
+                    "priority": "MEDIUM",
+                    "reason": f"{obstruction_count} walkway obstruction event(s) recorded.",
+                    "target_bay": "Transit Corridor (Bay 2)",
+                })
+                recurring_risk_patterns.append({
+                    "pattern": "Walkway obstruction by cartons or pallets",
+                    "frequency": f"{obstruction_count} event(s) recorded",
+                    "zone": "Transit Corridor (Bay 2)",
+                })
 
         return {
             "safe_handling_ratio": safe_ratio,
             "potential_risk_exposures": damage_prevented,
+            "potential_damage_prevented": damage_prevented,
             "at_risk_handling_events": risky,
             "recorded_risk_events": interventions,
             "interventions_logged": interventions,
-            "structured_recommendations": [
-                {
-                    "id": "REC-01",
-                    "what_happened": "Manual carton dragging along warehouse floor plane.",
-                    "where": "General Staging Bay (Bay 1)",
-                    "when": "Peak unloading shift (14:00 - 16:00)",
-                    "why_it_matters": "Floor friction accelerates packaging seam wear and compromises bottom carton structural integrity.",
-                    "what_to_change": f"Deploy {trolley_suggestion} additional hand trolley(s) directly to Bay 1 staging buffer.",
-                    "expected_operational_effect": "Eliminates unsupported floor translation and prevents carton base scuffing.",
-                    "priority": "HIGH" if risky > 0 else "LOW",
-                    "equipment_tag": "Suggested deployment",
-                },
-                {
-                    "id": "REC-02",
-                    "what_happened": "Lower carton extraction under overhead vertical stack.",
-                    "where": "Heavy Storage Racks (Bay 3)",
-                    "when": "Restocking cycles",
-                    "why_it_matters": "Extraction from column base induces top-heavy overhang and imminent stack collapse.",
-                    "what_to_change": "Enforce strict top-to-bottom de-stacking sequence protocol.",
-                    "expected_operational_effect": "Maintains vertical column center-of-mass and prevents falling carton shock.",
-                    "priority": "CRITICAL" if summary["critical_events"] > 0 else "LOW",
-                    "equipment_tag": "Procedural protocol",
-                },
-                {
-                    "id": "REC-03",
-                    "what_happened": "Pallet misaligned protruding into active transit corridor.",
-                    "where": "Pedestrian Transit Corridor (Bay 2)",
-                    "when": "Transit turnover intervals",
-                    "why_it_matters": "Protrusions create snag hazards for material handling equipment and restrict pedestrian egress.",
-                    "what_to_change": "Realign pallet corners flush with designated yellow floor boundary demarcations.",
-                    "expected_operational_effect": "Restores full clear transit width across designated safety walkways.",
-                    "priority": "MEDIUM" if attention > 0 else "LOW",
-                    "equipment_tag": "Bay housekeeping",
-                },
-            ],
-            "training_opportunities": [
-                {
-                    "id": "TRN-01",
-                    "title": "Two-Person Team Lift for Heavy Cartons (>15kg)",
-                    "priority": "HIGH" if attention > 0 else "LOW",
-                    "reason": "Repeated heavy manual carries detected in General Staging Bay without hand trolley.",
-                    "target_bay": "General Staging Bay",
-                },
-                {
-                    "id": "TRN-02",
-                    "title": "Top-to-Bottom De-Stacking Protocol Refresher",
-                    "priority": "CRITICAL" if summary["critical_events"] > 0 else "LOW",
-                    "reason": "Lower box pulling motions observed under overhead carton stacks.",
-                    "target_bay": "Racking Area",
-                },
-                {
-                    "id": "TRN-03",
-                    "title": "Corridor Clearance & Pallet Line-up Rules",
-                    "priority": "MEDIUM" if summary["high_risk_events"] > 0 else "LOW",
-                    "reason": "Pallets resting with >25px protrusion into pedestrian walkway.",
-                    "target_bay": "Transit Corridor",
-                },
-            ],
-            "recurring_risk_patterns": [
-                {
-                    "pattern": "Afternoon carton dragging during peak unloading window (14:00 - 16:00)",
-                    "frequency": f"{summary['high_risk_events']} event(s) recorded" if summary['high_risk_events'] > 0 else "No active pattern",
-                    "zone": "General Staging Bay",
-                },
-                {
-                    "pattern": "Top-heavy carton stacks resting on smaller base packaging",
-                    "frequency": f"{summary['attention_events']} event(s) recorded" if summary['attention_events'] > 0 else "No active pattern",
-                    "zone": "Heavy Storage Racks",
-                },
-                {
-                    "pattern": "Walkway staging temporary dwell exceeding clearance limit",
-                    "frequency": f"{summary['critical_events']} event(s) recorded" if summary['critical_events'] > 0 else "No active pattern",
-                    "zone": "Transit Corridor",
-                },
-            ],
+            "structured_recommendations": structured_recommendations,
+            "training_opportunities": training_opportunities,
+            "recurring_risk_patterns": recurring_risk_patterns,
         }
 

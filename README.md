@@ -190,6 +190,47 @@ CareGuard AI implements sequence-based temporal detection across all core wareho
 
 ---
 
+## 🤖 CareGuard Safety Copilot (Data-Grounded Warehouse Intelligence)
+
+CareGuard AI includes a **Data-Grounded Safety Copilot** that provides zero-hallucination operational decision support for warehouse floor supervisors.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DATA-GROUNDED COPILOT ARCHITECTURE                       │
+│                                                                             │
+│  [User Question]                                                            │
+│       │                                                                     │
+│       ▼                                                                     │
+│  [Intent & Entity Classifier] ──> Extracts Target Bay, Behavior, Timeframe │
+│       │                                                                     │
+│       ▼                                                                     │
+│  [Context Aggregation Engine] ──> Queries careguard.db (KPIs, 20-Event      │
+│       │                           Window, 10-Behavior Dist, Bay Telemetry)  │
+│       ▼                                                                     │
+│  [Dual-Mode Reasoner]                                                       │
+│    ├── LLM Mode (Gemini API) ──> Strict In-Context Grounding Prompt         │
+│    └── Deterministic Engine  ──> 100% Deterministic Rule/Metric Evaluator   │
+│       │                                                                     │
+│       ▼                                                                     │
+│  [Structured Output Generator] ──> [Direct Answer]                          │
+│                                    [Observed Kinematics / Evidence]         │
+│                                    [Risk & Severity Assessment]             │
+│                                    [Supervisor Action Recommendations]      │
+│                                    [Clickable Incident Navigation Badges]   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Core Capabilities:
+1. **Handling Quality Diagnostics**: Explains exactly why the Handling Quality score changed, citing the rolling 20-event severity deductions (-0.85 for RED, -0.40 for ORANGE, -0.15 for YELLOW).
+2. **Critical Event & Drop Analysis**: Pinpoints why alerts like `PRODUCT_DROPPED` fired with exact kinematic measurements (e.g. *free-fall descent velocity spike, separation distance, floor impact*).
+3. **Multi-Bay & Zone Risk Comparisons**: Analyzes risk levels, primary issues, and incident density across Bay 01 and Bay 02.
+4. **10-Behaviour Taxonomy Analytics**: Ranks observed handling behaviors and identifies recurring operational hazards.
+5. **Supervisor Action Plans**: Formulates targeted corrective interventions linked directly to active warehouse events.
+6. **Conversational Multi-Turn Follow-Ups**: Contextually resolves queries like *"Which ones happened in Bay 1?"* or *"What should we do first?"*.
+7. **Anti-Hallucination Guardrails**: Strictly denies out-of-scope inquiries (*"I do not have evidence in the active CareGuard telemetry database..."*) preventing false facts or fictional incidents.
+
+---
+
 ## 🛠️ How to Run, Test & Demonstrate
 
 ### 1. Launch the CareGuard AI Web Application (Recommended)
@@ -210,9 +251,9 @@ CareGuard AI implements sequence-based temporal detection across all core wareho
 
 ---
 
-### 2. Run the Complete Automated Test Suite (87 Tests Across 8 Modules)
+### 2. Run the Complete Automated Test Suite (96 Tests Across 9 Modules)
 ```bash
-# Run all 87 tests via the verified warehouse test suite runner
+# Run all 96 tests via the verified warehouse test suite runner
 .venv\Scripts\python.exe scripts/run_all_warehouse_tests.py
 ```
 
@@ -241,6 +282,9 @@ Or run targeted verification suites individually:
 
 # 8. Multi-upload lifecycle & stepping detection
 .venv\Scripts\python.exe -m unittest tests.test_priority_corrections
+
+# 9. Safety Copilot telemetry grounding & anti-hallucination suite
+.venv\Scripts\python.exe -m unittest tests.test_safety_copilot
 ```
 
 ---

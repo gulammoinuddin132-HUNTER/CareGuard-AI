@@ -44,18 +44,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onSaveSettings }) =>
   return (
     <div className="max-w-4xl mx-auto space-y-5 animate-fade-in text-slate-800">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold uppercase tracking-wider text-slate-900 font-mono">
-              Detection & Kinematic Settings
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight font-sans">
+              System Settings & Calibration
             </h1>
-            <span className="text-[10px] font-mono bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded font-bold">
-              PERCEPTION TUNING
+            <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200">
+              Perception Tuning
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Configure how much motion or spatial change CareGuard requires before classifying an observation as meaningful.
+          <p className="text-sm text-slate-600 font-medium mt-1">
+            Configure kinematic motion thresholds, spatial tolerances, and multi-bay operational camera parameters
           </p>
         </div>
         <button

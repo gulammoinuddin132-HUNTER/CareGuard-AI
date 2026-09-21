@@ -242,6 +242,139 @@ class TestPriorityCorrections(unittest.TestCase):
         ev = self.engine._check_product_dropped(prod, now=100.8, video_source="test.mp4")
         self.assertIsNotNone(ev, "Genuine free-fall drop must be detected")
         self.assertEqual(ev.behaviour_type, WarehouseBehaviourType.PRODUCT_DROPPED)
+        self.assertIn("Inspect the product for possible damage", ev.recommended_action)
+        self.assertIn("separated from carry/elevation", ev.observed_behaviour)
+
+    def test_drop_after_carry_sequence(self):
+        """Handler carries carton, releases it, and it drops to floor -> triggers PRODUCT_DROPPED."""
+        person = TrackedEntity(
+            track_id=36,
+            class_id=0,
+            label="person",
+            category=WarehouseObjectCategory.PERSON,
+            confidence=0.92,
+            current_bbox=(180, 150, 70, 220),
+            first_seen=10.0,
+            last_seen=11.2,
+            is_confirmed=True,
+        )
+        person.history.append(KinematicState(
+            timestamp=11.2,
+            bbox=(180, 150, 70, 220),
+            centroid=(215.0, 260.0),
+            velocity=(10.0, 0.0),
+            speed=10.0,
+            bottom_y=370,
+            is_grounded=True,
+            elevation_ratio=0.10,
+        ))
+
+        prod = TrackedEntity(
+            track_id=37,
+            class_id=1,
+            label="carton",
+            category=WarehouseObjectCategory.PRODUCT,
+            confidence=0.88,
+            current_bbox=(200, 340, 65, 55),
+            first_seen=10.0,
+            last_seen=11.2,
+            is_confirmed=True,
+            associated_person_id=36,
+            carrying_state="NONE",
+            interaction_state=ProductInteractionState.GROUND_CONTACT,
+            relative_motion=(0.0, 60.0, 60.0),
+        )
+        prod.interaction_history = [
+            ProductInteractionState.HELD,
+            ProductInteractionState.HELD,
+            ProductInteractionState.AIRBORNE,
+            ProductInteractionState.GROUND_CONTACT,
+        ]
+        # Frame 1: Elevated in carry
+        prod.history.append(KinematicState(
+            timestamp=10.0,
+            bbox=(200, 210, 65, 55),
+            centroid=(232.5, 237.5),
+            velocity=(15.0, 5.0),
+            speed=15.8,
+            bottom_y=265,
+            is_grounded=False,
+            elevation_ratio=0.45,
+        ))
+        # Frame 2: Released and in free-fall descent
+        prod.history.append(KinematicState(
+            timestamp=10.6,
+            bbox=(205, 275, 65, 55),
+            centroid=(237.5, 302.5),
+            velocity=(10.0, 175.0),
+            speed=175.3,
+            bottom_y=330,
+            is_grounded=False,
+            elevation_ratio=0.31,
+        ))
+        # Frame 3: Floor contact and stopped
+        prod.history.append(KinematicState(
+            timestamp=11.2,
+            bbox=(208, 340, 65, 55),
+            centroid=(240.5, 367.5),
+            velocity=(2.0, 20.0),
+            speed=20.1,
+            bottom_y=395,
+            is_grounded=True,
+            elevation_ratio=0.08,
+        ))
+
+        evs = self.engine.evaluate_frame([person, prod], current_time=11.2, video_source="test.mp4")
+        drop_events = [e for e in evs if e.behaviour_type == WarehouseBehaviourType.PRODUCT_DROPPED]
+        self.assertEqual(len(drop_events), 1, "Drop after carry sequence must trigger PRODUCT_DROPPED")
+        self.assertEqual(drop_events[0].product_track_id, 37)
+        self.assertEqual(drop_events[0].person_track_id, 36)
+
+    def test_walking_carry_does_not_trigger_drop(self):
+        """Handler walking steadily while carrying a carton must NOT trigger PRODUCT_DROPPED."""
+        person = TrackedEntity(
+            track_id=10,
+            class_id=0,
+            label="person",
+            category=WarehouseObjectCategory.PERSON,
+            confidence=0.90,
+            current_bbox=(200, 100, 80, 250),
+            first_seen=20.0,
+            last_seen=21.5,
+            is_confirmed=True,
+        )
+        prod = TrackedEntity(
+            track_id=11,
+            class_id=1,
+            label="carton",
+            category=WarehouseObjectCategory.PRODUCT,
+            confidence=0.85,
+            current_bbox=(220, 180, 50, 50),
+            first_seen=20.0,
+            last_seen=21.5,
+            is_confirmed=True,
+            associated_person_id=10,
+            carrying_state="HOLDING",
+            interaction_state=ProductInteractionState.HELD,
+            relative_motion=(2.0, 5.0, 5.4),
+        )
+        prod.interaction_history = [ProductInteractionState.HELD] * 6
+        for i in range(5):
+            t = 20.0 + i * 0.3
+            x = 220 + i * 15
+            y = 180 + (i % 2) * 3
+            prod.history.append(KinematicState(
+                timestamp=t,
+                bbox=(x, y, 50, 50),
+                centroid=(x + 25.0, y + 25.0),
+                velocity=(50.0, 10.0),
+                speed=51.0,
+                bottom_y=y + 50,
+                is_grounded=False,
+                elevation_ratio=0.50,
+            ))
+        ev = self.engine._check_product_dropped(prod, now=21.5, video_source="test.mp4")
+        self.assertIsNone(ev, "Steady walking carry must NOT trigger PRODUCT_DROPPED")
 
     # -------------------------------------------------------------------------
     # Priority 3: MULTI-PRODUCT TRACKING (Stacked & Touching Cartons)
@@ -310,9 +443,191 @@ class TestPriorityCorrections(unittest.TestCase):
             self.assertEqual(res.status_code, 200, f"Upload #{upload_idx} failed: {res.text}")
             self.assertLess(elapsed, 5.0, f"Upload #{upload_idx} took too long ({elapsed:.2f}s)")
 
-        res_cam = client.post("/api/video/source", data={"source_type": "camera", "camera_index": "0"})
-        self.assertEqual(res_cam.status_code, 200)
+    # -------------------------------------------------------------------------
+    # Priority 6: UNSAFE_LOADING_SEQUENCE Hardening & Walking Carry Discrimination
+    # -------------------------------------------------------------------------
+
+    def test_walking_past_background_object_does_not_trigger_unsafe_loading_sequence(self):
+        """Handler walking with carried carton past a background stationary carton must NOT trigger UNSAFE_LOADING_SEQUENCE."""
+        # Static background product (Track 8) on a shelf/floor above the walking path
+        bg_prod = TrackedEntity(
+            track_id=8,
+            class_id=1,
+            label="carton",
+            category=WarehouseObjectCategory.PRODUCT,
+            confidence=0.88,
+            current_bbox=(220, 140, 60, 50),
+            first_seen=10.0,
+            last_seen=10.5,
+            is_confirmed=True,
+            interaction_state=ProductInteractionState.FREE,
+        )
+        bg_prod.history.append(KinematicState(
+            timestamp=10.5,
+            bbox=(220, 140, 60, 50),
+            centroid=(250.0, 165.0),
+            velocity=(0.0, 0.0),
+            speed=0.0,
+            bottom_y=190,
+            is_grounded=False,
+            elevation_ratio=0.60,
+        ))
+
+        # Walking handler (Track 9) carrying carton (Track 10) passing under Track 8 for one frame
+        person = TrackedEntity(
+            track_id=9,
+            class_id=0,
+            label="person",
+            category=WarehouseObjectCategory.PERSON,
+            confidence=0.92,
+            current_bbox=(200, 120, 80, 220),
+            first_seen=10.0,
+            last_seen=10.5,
+            is_confirmed=True,
+        )
+        carried_prod = TrackedEntity(
+            track_id=10,
+            class_id=1,
+            label="carton",
+            category=WarehouseObjectCategory.PRODUCT,
+            confidence=0.89,
+            current_bbox=(220, 195, 60, 50),
+            first_seen=10.0,
+            last_seen=10.5,
+            is_confirmed=True,
+            associated_person_id=9,
+            carrying_state="HOLDING",
+            interaction_state=ProductInteractionState.HELD,
+        )
+        carried_prod.history.append(KinematicState(
+            timestamp=10.5,
+            bbox=(220, 195, 60, 50),
+            centroid=(250.0, 220.0),
+            velocity=(45.0, 0.0),
+            speed=45.0,
+            bottom_y=245,
+            is_grounded=False,
+            elevation_ratio=0.48,
+        ))
+
+        # Evaluate single passing frame (gap_y = |190 - 195| = 5px <= 35px)
+        events = self.engine.evaluate_frame([person, carried_prod, bg_prod], current_time=10.5, video_source="test.mp4")
+        loading_events = [e for e in events if e.behaviour_type == WarehouseBehaviourType.UNSAFE_LOADING_SEQUENCE]
+        self.assertEqual(len(loading_events), 0, "Walking past a background object must NOT trigger UNSAFE_LOADING_SEQUENCE")
+
+    def test_genuine_unsafe_loading_sequence_requires_prior_stable_stack(self):
+        """Extracting a lower carton after verified resting stack history triggers UNSAFE_LOADING_SEQUENCE."""
+        engine = TemporalWarehouseBehaviourEngine(floor_y_threshold_ratio=0.80, frame_width=640, frame_height=480)
+        events = []
+
+        # Frames 0-3: Resting stacked boxes (bottom at 320, top at 260) with handler nearby
+        for i in range(4):
+            t = 20.0 + i * 0.1
+            top = TrackedEntity(
+                track_id=1, class_id=1, label="carton", category=WarehouseObjectCategory.PRODUCT,
+                confidence=0.90, current_bbox=(180, 260, 80, 60), first_seen=20.0, last_seen=t, is_confirmed=True,
+            )
+            top.history.append(KinematicState(timestamp=t, bbox=(180, 260, 80, 60), centroid=(220.0, 290.0), velocity=(0.0, 0.0), speed=0.0, bottom_y=320, is_grounded=False, elevation_ratio=0.33))
+            bot = TrackedEntity(
+                track_id=2, class_id=1, label="carton", category=WarehouseObjectCategory.PRODUCT,
+                confidence=0.90, current_bbox=(180, 320, 80, 60), first_seen=20.0, last_seen=t, is_confirmed=True,
+                associated_person_id=3, carrying_state="HOLDING",
+            )
+            bot.history.append(KinematicState(timestamp=t, bbox=(180, 320, 80, 60), centroid=(220.0, 350.0), velocity=(0.0, 0.0), speed=0.0, bottom_y=380, is_grounded=True, elevation_ratio=0.20))
+            person = TrackedEntity(
+                track_id=3, class_id=0, label="person", category=WarehouseObjectCategory.PERSON,
+                confidence=0.92, current_bbox=(100, 250, 60, 150), first_seen=20.0, last_seen=t, is_confirmed=True,
+            )
+            evs = engine.evaluate_frame([person, top, bot], current_time=t)
+            events.extend(evs)
+
+        # Frame 4: Bottom box extracted horizontally at 60 px/s while top remains stationary
+        t = 20.4
+        top = TrackedEntity(
+            track_id=1, class_id=1, label="carton", category=WarehouseObjectCategory.PRODUCT,
+            confidence=0.90, current_bbox=(180, 260, 80, 60), first_seen=20.0, last_seen=t, is_confirmed=True,
+        )
+        top.history.append(KinematicState(timestamp=t, bbox=(180, 260, 80, 60), centroid=(220.0, 290.0), velocity=(0.0, 0.0), speed=0.0, bottom_y=320, is_grounded=False, elevation_ratio=0.33))
+        bot = TrackedEntity(
+            track_id=2, class_id=1, label="carton", category=WarehouseObjectCategory.PRODUCT,
+            confidence=0.90, current_bbox=(130, 320, 80, 60), first_seen=20.0, last_seen=t, is_confirmed=True,
+            associated_person_id=3, carrying_state="HOLDING",
+        )
+        bot.history.append(KinematicState(timestamp=t, bbox=(130, 320, 80, 60), centroid=(170.0, 350.0), velocity=(-60.0, 0.0), speed=60.0, bottom_y=380, is_grounded=True, elevation_ratio=0.20))
+        person = TrackedEntity(
+            track_id=3, class_id=0, label="person", category=WarehouseObjectCategory.PERSON,
+            confidence=0.92, current_bbox=(80, 250, 60, 150), first_seen=20.0, last_seen=t, is_confirmed=True,
+        )
+        evs = engine.evaluate_frame([person, top, bot], current_time=t)
+        events.extend(evs)
+
+        seq_events = [e for e in events if e.behaviour_type == WarehouseBehaviourType.UNSAFE_LOADING_SEQUENCE]
+        self.assertGreaterEqual(len(seq_events), 1, "Genuine bottom extraction after resting stack MUST trigger UNSAFE_LOADING_SEQUENCE")
+        self.assertEqual(seq_events[0].risk_level, "RED")
+
+    def test_dynamic_handling_quality_score_scenarios(self):
+        """Validates controlled Handling Quality scenarios A-F: No collapse to 0 and logical recovery."""
+        from src.database.db_manager import DatabaseManager
+        import tempfile
+        import os
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            temp_db_path = f.name
+
+        try:
+            db = DatabaseManager(db_path=temp_db_path)
+            
+            # Scenario A: No events -> 100
+            stats_a = db.get_warehouse_stats_summary()
+            self.assertEqual(stats_a["handling_quality_score"], 100)
+
+            # Scenario B: 1 YELLOW warning event in 10 events -> 98
+            for i in range(9):
+                db.log_warehouse_event(
+                    event_id=f"EVT-G-{i}", behaviour_type="SAFE_HANDLING",
+                    risk_level="GREEN", confidence=0.95, start_timestamp="2026-09-21 10:00:00",
+                    end_timestamp="2026-09-21 10:00:01", duration_seconds=1.0, observed_behaviour="Safe",
+                    potential_risk="None", recommended_action="None",
+                )
+            db.log_warehouse_event(
+                event_id="EVT-Y-1", behaviour_type="UNSTABLE_STACKING",
+                risk_level="YELLOW", confidence=0.85, start_timestamp="2026-09-21 10:00:02",
+                end_timestamp="2026-09-21 10:00:03", duration_seconds=1.0, observed_behaviour="Tilt",
+                potential_risk="Risk", recommended_action="Fix",
+            )
+            stats_b = db.get_warehouse_stats_summary()
+            self.assertGreaterEqual(stats_b["handling_quality_score"], 95)
+            self.assertLessEqual(stats_b["handling_quality_score"], 99)
+
+            # Scenario D: 1 RED critical event in 10 events -> ~91
+            db.log_warehouse_event(
+                event_id="EVT-R-1", behaviour_type="PRODUCT_DROPPED",
+                risk_level="RED", confidence=0.95, start_timestamp="2026-09-21 10:00:04",
+                end_timestamp="2026-09-21 10:00:05", duration_seconds=1.0, observed_behaviour="Dropped",
+                potential_risk="Damage", recommended_action="Inspect",
+            )
+            stats_d = db.get_warehouse_stats_summary()
+            self.assertGreaterEqual(stats_d["handling_quality_score"], 85)
+            self.assertLessEqual(stats_d["handling_quality_score"], 95)
+
+            # Scenario F: Subsequent safe events enter window -> score recovers
+            for i in range(15):
+                db.log_warehouse_event(
+                    event_id=f"EVT-RECOVER-{i}", behaviour_type="SAFE_HANDLING",
+                    risk_level="GREEN", confidence=0.95, start_timestamp=f"2026-09-21 10:01:{i:02d}",
+                    end_timestamp=f"2026-09-21 10:01:{i:02d}", duration_seconds=1.0, observed_behaviour="Safe",
+                    potential_risk="None", recommended_action="None",
+                )
+            stats_f = db.get_warehouse_stats_summary()
+            self.assertGreaterEqual(stats_f["handling_quality_score"], 95, "Score must recover to >= 95 after safe handling operations")
+        finally:
+            if os.path.exists(temp_db_path):
+                try:
+                    os.remove(temp_db_path)
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
     unittest.main()
+

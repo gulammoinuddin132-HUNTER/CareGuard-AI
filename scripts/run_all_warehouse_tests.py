@@ -18,7 +18,7 @@ def run_test_module(mod_name: str) -> bool:
     mod = __import__(mod_name, fromlist=['*'])
     test_funcs = [
         (name, obj) for name, obj in inspect.getmembers(mod)
-        if (name.startswith('test_') and inspect.isfunction(obj))
+        if (name.startswith('test_') and inspect.isfunction(obj) and getattr(obj, '__module__', None) == mod.__name__)
     ]
     test_classes = [
         (name, obj) for name, obj in inspect.getmembers(mod)
@@ -66,6 +66,7 @@ if __name__ == '__main__':
         'tests.test_all_10_warehouse_behaviours',
         'tests.test_event_semantic_gating_and_pause',
         'tests.test_priority_corrections',
+        'tests.test_safety_copilot',
     ]
     
     all_ok = True
@@ -73,6 +74,7 @@ if __name__ == '__main__':
         try:
             ok = run_test_module(m)
             if not ok:
+                print(f"FAILED MODULE: {m}")
                 all_ok = False
         except Exception as e:
             print(f"Error loading {m}: {e}")

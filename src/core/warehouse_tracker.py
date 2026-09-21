@@ -343,7 +343,8 @@ class WarehouseObjectTracker:
                             break
 
                     # 2. Reject product bbox covering almost the entire person body (duplicate detector artifact)
-                    if iou_with_person > 0.65 or (d_area > 0.80 * p_area and compute_centroid_dist(d.bbox, p.bbox) < 35.0):
+                    # A duplicate box covers the person's torso/body with similar area (0.70x to 1.35x) and high overlap
+                    if iou_with_person > 0.65 or (0.70 * p_area <= d_area <= 1.35 * p_area and compute_centroid_dist(d.bbox, p.bbox) < 35.0 and fraction_in_person > 0.70):
                         suspicious = True
                         logger.debug(f"[TRACKER] Filtered duplicate product box covering entire person body: {d.bbox}")
                         break
@@ -392,9 +393,11 @@ class WarehouseObjectTracker:
                     )
 
                     # If candidate detection is directly overlapping the person's leg column while carton is carried at torso:
+                    # Leg artifacts are narrow/small relative to person (dw <= 0.65 * pw or d_area <= 0.45 * p_area)
+                    is_leg_sized = (d.bbox[2] <= 0.65 * pw or d_area <= 0.45 * p_area)
                     is_in_leg_column = (cy >= py + 0.50 * ph) and (px - 20 <= cx <= px + pw + 20)
                     is_overlapping_legs = (fraction_in_person > 0.30 or compute_bbox_min_dist(d.bbox, p.bbox) <= 15.0)
-                    if is_in_leg_column and is_overlapping_legs:
+                    if is_leg_sized and is_in_leg_column and is_overlapping_legs:
                         if (has_torso_held_product or has_torso_candidate_det) and not is_existing_track_here:
                             suspicious = True
                             logger.debug(f"[TRACKER] Filtered false leg/shorts artifact while carton is held at torso: {d.bbox}")
@@ -726,7 +729,7 @@ class WarehouseObjectTracker:
         and assigns multi-frame ProductInteractionState (FREE, HELD, ADJACENT, TOWED, AIRBORNE, GROUND_CONTACT).
         """
         person_tracks = [t for t in self._tracks.values() if t.category == WarehouseObjectCategory.PERSON and t.is_confirmed]
-        product_tracks = [t for t in self._tracks.values() if t.category == WarehouseObjectCategory.PRODUCT and t.is_confirmed]
+        product_tracks = [t for t in self._tracks.values() if t.category == WarehouseObjectCategory.PRODUCT and (t.is_confirmed or len(t.history) >= 1)]
 
         # Snapshot prior associations before re-evaluating
         prior_associations = {prod.track_id: prod.associated_person_id for prod in product_tracks if prod.associated_person_id is not None}
@@ -769,6 +772,7 @@ class WarehouseObjectTracker:
             # Compute relative motion and classify interaction state
             candidate_state = ProductInteractionState.FREE
             if best_person is not None:
+                prod.is_confirmed = True  # Immediately confirm product candidate when associated with an active handler
                 prod.associated_person_id = best_person.track_id
                 if prod.track_id not in best_person.associated_product_ids:
                     best_person.associated_product_ids.append(prod.track_id)
@@ -801,20 +805,28 @@ class WarehouseObjectTracker:
 
                 # Criteria for HELD:
                 # 1. Close to handler body (edge_dist <= 85px or centroid_dist <= 220px)
-                # 2. Elevated in carry position (prod_bottom <= p_bottom - 25 or not grounded)
+                # 2. Carried at torso/waist height or elevated off floor (prod_cy < p_y + 0.82 * p_h or prod_bottom <= p_bottom - 15)
                 # 3. Low relative speed (moving together: rel_speed <= 110px/s or abs(rel_dy) <= 75px/s)
-                # 4. Not independently accelerating downward away from handler (prod_vy <= p_vy + 90px/s)
+                # 4. Not independently accelerating downward away from handler (prod_vy <= p_vy + 60px/s)
                 is_near_body = (edge_dist <= 85.0 or centroid_dist <= 220.0)
-                is_elevated_in_reach = (prod_bottom <= p_bottom - 20) or (prod.current_state and not prod.current_state.is_grounded)
+                is_carried_height = (prod_cy < (p_y + 0.82 * p_h)) or (prod_bottom <= p_bottom - 15)
+                is_elevated_in_reach = is_carried_height or (prod.current_state and not prod.current_state.is_grounded)
                 is_correlated_motion = (rel_speed <= 110.0) or (abs(rel_dy) <= 75.0)
-                is_not_falling_away = (prod_vy <= p_vy + 90.0)
+                is_falling_away = (prod_vy >= p_vy + 60.0 and rel_dy > 45.0)
 
-                if is_near_body and is_elevated_in_reach and is_correlated_motion and is_not_falling_away:
+                if is_near_body and is_elevated_in_reach and is_correlated_motion and not is_falling_away:
                     candidate_state = ProductInteractionState.HELD
                     prod.carrying_state = "HOLDING"
+                elif is_falling_away and prod.current_state and not prod.current_state.is_grounded:
+                    # Released or falling downwards away from handler
+                    candidate_state = ProductInteractionState.AIRBORNE
+                    prod.carrying_state = "NONE"
                 elif prod.current_state and prod.current_state.is_grounded and prod.current_state.speed > 15.0 and edge_dist <= 180.0:
                     candidate_state = ProductInteractionState.TOWED
                     prod.carrying_state = "TOWING"
+                elif prod.current_state and prod.current_state.is_grounded:
+                    candidate_state = ProductInteractionState.GROUND_CONTACT
+                    prod.carrying_state = "ADJACENT" if edge_dist <= 140.0 else "NONE"
                 elif edge_dist <= 140.0:
                     candidate_state = ProductInteractionState.ADJACENT
                     prod.carrying_state = "ADJACENT"

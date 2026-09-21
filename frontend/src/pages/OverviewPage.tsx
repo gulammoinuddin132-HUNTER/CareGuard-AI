@@ -1,44 +1,24 @@
 import React from 'react';
 import {
-  ShieldAlert,
-  Boxes,
-  TrendingDown,
-  ArrowRight,
-  Clock,
-  MapPin,
   Activity,
-  Play,
-  ShieldCheck,
-  Eye,
-  CheckCircle2,
   AlertTriangle,
   Camera,
-  Layers,
-  Cpu,
-  Zap,
-  Target,
-  FileSearch,
-  Sparkles,
-  Award,
+  ShieldCheck,
   Warehouse,
   ChevronRight,
+  Boxes,
+  ShieldAlert,
+  MapPin,
+  CheckCircle2,
+  Workflow,
+  Radio,
+  Eye,
+  ArrowRight,
+  Package,
+  Layers,
 } from 'lucide-react';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
-} from 'recharts';
-import { Card } from '../components/ui/Card';
 import { RiskBadge } from '../components/ui/Badge';
 import { AnimatedCounter } from '../components/ui/AnimatedCounter';
-import { useScrollReveal } from '../hooks/useScrollReveal';
 import {
   SummaryKPIs,
   WarehouseEvent,
@@ -73,554 +53,412 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   onSelectIncident,
 }) => {
   const currentRisk = videoState?.current_risk_level || 'GREEN';
-  const currentEvent = videoState?.current_event;
+  const latestEvent = recentIncidents.length > 0 ? recentIncidents[0] : (videoState?.current_event || null);
 
   const totalIncidents = summary?.total_events ?? 0;
-  const criticalEvents = (summary?.critical_events ?? 0) + (summary?.high_risk_events ?? 0);
-  const totalMonitoredItems = summary?.items_monitored ?? (videoState?.active_tracks_count ?? 0);
-  const riskFreeRatio = summary?.risk_free_observation_ratio ?? (prevention?.safe_handling_ratio ?? 100.0);
-  const handlingQuality = summary?.handling_quality_score ?? 100;
+  const activeSafetyEvents = summary?.active_safety_events ?? totalIncidents;
+  const highRiskEvents = (summary?.critical_events ?? 0) + (summary?.high_risk_events ?? 0);
+  const unitsSeen = summary?.units_seen ?? summary?.items_monitored ?? 0;
+  const liveTracksCount = videoState?.active_tracks_count ?? 0;
+  const safeHandlingRatio = summary?.risk_free_observation_ratio ?? (prevention?.safe_handling_ratio ?? 100.0);
+  const rawQualityScore = summary?.handling_quality_score ?? 100;
 
-  // Scroll reveal hooks for storytelling sections
-  const heroReveal = useScrollReveal();
-  const pipelineReveal = useScrollReveal();
-  const liveStreamReveal = useScrollReveal();
-  const analyticsReveal = useScrollReveal();
+  const getQualityTheme = (score: number) => {
+    if (score >= 90) {
+      return {
+        label: 'Optimal / Safe',
+        textColor: 'text-emerald-600',
+        barColor: 'bg-emerald-500',
+        badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      };
+    }
+    if (score >= 75) {
+      return {
+        label: 'Good / Watch',
+        textColor: 'text-amber-600',
+        barColor: 'bg-amber-500',
+        badgeBg: 'bg-amber-50 text-amber-700 border-amber-200',
+      };
+    }
+    if (score >= 50) {
+      return {
+        label: 'Needs Attention',
+        textColor: 'text-orange-600',
+        barColor: 'bg-orange-500',
+        badgeBg: 'bg-orange-50 text-orange-700 border-orange-200',
+      };
+    }
+    return {
+      label: 'Critical Action Required',
+      textColor: 'text-rose-600',
+      barColor: 'bg-rose-500',
+      badgeBg: 'bg-rose-50 text-rose-700 border-rose-200',
+    };
+  };
 
+  const qualityTheme = getQualityTheme(rawQualityScore);
+
+  // 5-Stage Visual Operational Flow
   const pipelineSteps = [
     {
       step: '01',
-      title: 'VIDEO INGESTION',
+      action: 'SEE',
+      title: 'Visual Ingestion',
       icon: Camera,
-      desc: 'Receives live camera feeds and recorded warehouse footage.',
-      tag: '30 FPS Ingestion',
+      desc: 'Real-time CCTV and camera feeds track material handling across dock bays.',
     },
     {
       step: '02',
-      title: 'AI PERCEPTION',
-      icon: Cpu,
-      desc: 'Detects handlers, cartons/products, pallets and material-handling equipment.',
-      tag: 'Multi-Class Perception',
+      action: 'UNDERSTAND',
+      title: 'Action Analysis',
+      icon: Activity,
+      desc: 'Tracks package trajectories, handler separation, velocities, and floor contact.',
     },
     {
       step: '03',
-      title: 'OBJECT TRACKING',
-      icon: Layers,
-      desc: 'Maintains persistent entity tracks and motion information.',
-      tag: 'Continuous Motion',
+      action: 'ASSESS',
+      title: 'Risk Evaluation',
+      icon: ShieldAlert,
+      desc: 'Classifies potential damage risks (drops, drags, unstable stacks, obstructions).',
     },
     {
       step: '04',
-      title: 'BEHAVIOUR UNDERSTANDING',
-      icon: Activity,
-      desc: 'Analyses multi-frame actions to identify warehouse handling patterns.',
-      tag: '10 Behaviours',
+      action: 'ACT',
+      title: 'Supervisor Action',
+      icon: CheckCircle2,
+      desc: 'Instant operational guidance: inspect goods, deploy trolleys, restack safely.',
     },
     {
       step: '05',
-      title: 'DAMAGE RISK DETECTION',
-      icon: AlertTriangle,
-      desc: 'Classifies potential material-damage and handling risk.',
-      tag: 'Non-Punitive Safety',
-    },
-    {
-      step: '06',
-      title: 'SUPERVISOR INTERVENTION',
-      icon: Zap,
-      desc: 'Provides immediate, behaviour-specific corrective guidance.',
-      tag: 'Targeted Guidance',
-    },
-    {
-      step: '07',
-      title: 'DAMAGE PREVENTION',
+      action: 'PREVENT',
+      title: 'Damage Prevention',
       icon: ShieldCheck,
-      desc: 'Identifies recurring patterns and recommends process/equipment improvements.',
-      tag: 'Zero Damage Goal',
+      desc: 'Identifies recurring handling issues to eliminate damage before shipment.',
     },
   ];
 
-  const hasTrendData = hourlyTrends.some((h) => (h.risk_events ?? h.total ?? 0) > 0);
-
   return (
-    <div className="space-y-8 animate-fade-in text-slate-800">
-      {/* ========================================================================= */}
-      {/* 1. HERO EXECUTIVE STATUS: Warehouse Condition in < 5 Seconds */}
-      {/* ========================================================================= */}
-      <div
-        ref={heroReveal.ref}
-        className={`bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-md text-white transition-all duration-700 ${
-          heroReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-800">
-          <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded bg-slate-800 text-sky-400 border border-slate-700 font-mono text-[10px] uppercase font-bold tracking-wider mb-2">
-              <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-              <span>CareGuard AI • Warehouse Safety Intelligence</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-              See Risk. <span className="text-sky-400">Prevent Damage.</span>
+    <div className="space-y-6 animate-fade-in text-slate-800">
+      {/* 1. Page Header & Live Status */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight font-sans">
+              CareGuard Command Center
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              AI-powered video intelligence that helps warehouse teams identify risky handling behaviour before damage occurs.
-            </p>
+            <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-md bg-sky-50 text-sky-700 border border-sky-200">
+              Live Operations
+            </span>
           </div>
-
-          {/* Operational Status Module */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-4 flex items-center gap-4 shrink-0 shadow-inner">
-            <div className="space-y-1">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
-                CURRENT OPERATIONAL STATUS
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`w-3 h-3 rounded-full animate-pulse ${
-                  currentRisk === 'GREEN' ? 'bg-emerald-500' : (currentRisk === 'YELLOW' ? 'bg-amber-500' : (currentRisk === 'ORANGE' ? 'bg-orange-500' : 'bg-rose-500'))
-                }`} />
-                <span className="text-base font-bold font-mono text-white">
-                  {currentRisk === 'GREEN' ? 'SAFE' : (currentRisk === 'YELLOW' ? 'ATTENTION' : (currentRisk === 'ORANGE' ? 'HIGH RISK' : 'CRITICAL'))}
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono">
-                {videoState?.fps || 0} FPS • {videoState?.active_tracks_count || 0} Active Tracks
-              </div>
-            </div>
-            <button
-              onClick={onNavigateToMonitoring}
-              className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-2 rounded-md transition-colors flex items-center gap-1.5 shrink-0"
-            >
-              <span>Live Console</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <p className="text-sm sm:text-base text-slate-600 font-semibold mt-1">
+            Warehouse Safety & Damage Prevention — Real-time Handling Intelligence
+          </p>
         </div>
 
-        {/* Top Operational Metrics with Grounded Telemetry & Tooltips */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-5">
-          <div
-            className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 cursor-help group"
-            title="Severity-weighted operational index based on recorded handling-risk events (100 baseline: RED=-10, ORANGE=-5, YELLOW=-2, GREEN=0)."
-          >
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-              HANDLING QUALITY INDEX
-            </span>
-            <div className="text-xl font-extrabold font-mono text-emerald-400 mt-1 flex items-baseline gap-1">
-              <AnimatedCounter value={handlingQuality} />
-              <span className="text-[11px] text-slate-500 font-normal">/100</span>
-            </div>
-            <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">Internal Quality Index</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-lg text-xs font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-slate-700">Database: <strong className="text-slate-900">careguard.db ACTIVE</strong></span>
           </div>
-
-          <div
-            className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 cursor-help group"
-            title="Count of actively tracked cargo items and warehouse entities observed in the active session."
+          <button
+            onClick={onNavigateToMonitoring}
+            className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white transition-colors shadow-xs"
           >
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-              ITEMS / ENTITIES MONITORED
-            </span>
-            <div className="text-xl font-extrabold font-mono text-sky-400 mt-1">
-              <AnimatedCounter value={totalMonitoredItems} />
-            </div>
-            <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">Active Tracked Units</span>
-          </div>
-
-          <div
-            className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 cursor-help group"
-            title="Total handling-risk events recorded in the current session/database."
-          >
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-              RISK EVENTS
-            </span>
-            <div className="text-xl font-extrabold font-mono text-white mt-1">
-              <AnimatedCounter value={totalIncidents} />
-            </div>
-            <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">Recorded CV Incidents</span>
-          </div>
-
-          <div
-            className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 cursor-help group"
-            title="Count of RED (Critical) and ORANGE (High Risk) safety violations requiring immediate intervention."
-          >
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-              HIGH / CRITICAL EVENTS
-            </span>
-            <div className="text-xl font-extrabold font-mono text-rose-400 mt-1">
-              <AnimatedCounter value={criticalEvents} />
-            </div>
-            <span className="text-[10px] text-rose-500 block mt-0.5 font-mono">RED & ORANGE Tiers</span>
-          </div>
-
-          <div
-            className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 cursor-help group"
-            title="Share of monitored handling observations operating within safe kinematic boundaries."
-          >
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block truncate">
-              RISK-FREE OBSERVATION RATIO
-            </span>
-            <div className="text-xl font-extrabold font-mono text-emerald-400 mt-1 flex items-baseline">
-              <AnimatedCounter value={riskFreeRatio} decimals={1} />
-              <span className="text-xs ml-0.5">%</span>
-            </div>
-            <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">Safe Kinematics Share</span>
-          </div>
+            <Radio className="w-4 h-4" />
+            <span>Open Live Feed</span>
+          </button>
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* 2. SCROLL STORYTELLING: FROM VIDEO TO UNDERSTANDING */}
-      {/* ========================================================================= */}
-      <div
-        ref={pipelineReveal.ref}
-        className={`bg-white rounded-xl border border-slate-200 p-5 shadow-xs transition-all duration-700 ${
-          pipelineReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4 pb-3 border-b border-slate-100">
+      {/* 2. Primary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Card 1: Handling Quality */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Handling Quality</span>
+            <ShieldCheck className="w-4 h-4 text-sky-600" />
+          </div>
+          <div className="my-3">
+            <div className="text-3xl sm:text-4xl font-extrabold font-mono text-slate-900 flex items-baseline gap-1">
+              <AnimatedCounter value={rawQualityScore} />
+              <span className="text-sm font-semibold text-slate-500">/ 100</span>
+            </div>
+            <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded mt-1.5 ${totalIncidents === 0 ? 'bg-slate-100 text-slate-700 border border-slate-200' : qualityTheme.badgeBg}`}>
+              {totalIncidents === 0 ? 'No activity — baseline' : qualityTheme.label}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-medium">Last 20 events</p>
+        </div>
+
+        {/* Card 2: Active Safety Events */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Active Safety Events</span>
+            <AlertTriangle className="w-4 h-4 text-amber-500" />
+          </div>
+          <div className="my-3">
+            <div className="text-3xl sm:text-4xl font-extrabold font-mono text-slate-900">
+              <AnimatedCounter value={activeSafetyEvents} />
+            </div>
+            <span className="inline-block text-xs font-bold text-slate-600 mt-1.5">
+              {activeSafetyEvents === 0 ? 'Zero unresolved incidents' : `${activeSafetyEvents} awaiting review`}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-medium">Unresolved incidents ({totalIncidents} total logged)</p>
+        </div>
+
+        {/* Card 3: High-Risk Events */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">High-Risk Events</span>
+            <ShieldAlert className="w-4 h-4 text-rose-600" />
+          </div>
+          <div className="my-3">
+            <div className="text-3xl sm:text-4xl font-extrabold font-mono text-rose-600">
+              <AnimatedCounter value={highRiskEvents} />
+            </div>
+            <span className="inline-block text-xs font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded mt-1.5 border border-rose-200">
+              {summary?.critical_events ?? 0} Critical (RED) • {summary?.high_risk_events ?? 0} High (ORANGE)
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-medium">Current session</p>
+        </div>
+
+        {/* Card 4: Unique Cargo Items Seen */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Unique Cargo Items Seen</span>
+            <Boxes className="w-4 h-4 text-indigo-600" />
+          </div>
+          <div className="my-3">
+            <div className="text-3xl sm:text-4xl font-extrabold font-mono text-slate-900">
+              <AnimatedCounter value={unitsSeen} />
+            </div>
+            <span className="inline-block text-xs font-bold text-slate-600 mt-1.5">
+              {unitsSeen === 0 ? 'No tracked packages' : `${unitsSeen} distinct cargo tracks`}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-medium">Based on logged session tracks</p>
+        </div>
+
+        {/* Card 5: Safe Handling % */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider">Safe Handling %</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="my-3">
+            {totalIncidents === 0 ? (
+              <div className="text-3xl sm:text-4xl font-extrabold font-mono text-slate-400 flex items-baseline">
+                —
+              </div>
+            ) : (
+              <div className="text-3xl sm:text-4xl font-extrabold font-mono text-emerald-600 flex items-baseline gap-0.5">
+                <AnimatedCounter value={safeHandlingRatio} decimals={1} />
+                <span className="text-sm font-bold">%</span>
+              </div>
+            )}
+            <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded mt-1.5 ${totalIncidents === 0 ? 'bg-slate-100 text-slate-600 border border-slate-200' : 'text-emerald-700 bg-emerald-50 border border-emerald-200'}`}>
+              {totalIncidents === 0 ? 'No activity' : 'Risk-free handling ratio'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-medium">Current session (all events)</p>
+        </div>
+      </div>
+
+      {/* 3. Operational Sections: Recent Safety Events & Latest Incident */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Cols: Recent Safety Events Table */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-                FROM VIDEO TO UNDERSTANDING
-              </h2>
-              <span className="text-[10px] font-mono bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded font-bold">
-                END-TO-END PIPELINE
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-sans">
+                  Recent Safety Events
+                </h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Real-time handling audit trail from careguard.db
+                </p>
+              </div>
+              <span className="text-xs font-bold font-mono px-2.5 py-1 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                {recentIncidents.length} Recent Event(s)
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              How CareGuard AI transforms raw warehouse pixels into early proactive damage prevention
+
+            <div className="mt-4 overflow-x-auto">
+              {recentIncidents.length > 0 ? (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                      <th className="py-2.5 px-3">Time</th>
+                      <th className="py-2.5 px-3">Behaviour</th>
+                      <th className="py-2.5 px-3">Risk Level</th>
+                      <th className="py-2.5 px-3">Location</th>
+                      <th className="py-2.5 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm font-medium">
+                    {recentIncidents.slice(0, 6).map((inc) => (
+                      <tr
+                        key={inc.event_id}
+                        onClick={() => onSelectIncident(inc)}
+                        className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
+                      >
+                        <td className="py-3 px-3 font-mono text-xs text-slate-600 whitespace-nowrap">
+                          {inc.start_timestamp ? inc.start_timestamp.split(' ')[1] || inc.start_timestamp : 'Just now'}
+                        </td>
+                        <td className="py-3 px-3 font-bold text-slate-900">
+                          {inc.behaviour_type.replace(/_/g, ' ')}
+                        </td>
+                        <td className="py-3 px-3">
+                          <RiskBadge level={inc.risk_level} size="sm">
+                            {inc.risk_level}
+                          </RiskBadge>
+                        </td>
+                        <td className="py-3 px-3 text-xs text-slate-600 font-semibold">
+                          {inc.loading_bay || 'Bay 01'}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <span className="text-xs font-bold text-sky-600 group-hover:text-sky-700 inline-flex items-center gap-1">
+                            <span>Review</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="py-12 text-center text-slate-500 space-y-2">
+                  <ShieldCheck className="w-10 h-10 text-slate-400 mx-auto" />
+                  <p className="text-base font-bold text-slate-700">No safety events recorded yet.</p>
+                  <p className="text-xs text-slate-500">All monitored warehouse operations are running within safe parameters.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right 1 Col: Latest Incident Breakdown (WHAT HAPPENED, WHY IT MATTERS, WHAT TO DO) */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-sans">
+                Latest Incident Focus
+              </h2>
+              {latestEvent && (
+                <RiskBadge level={latestEvent.risk_level} size="sm">
+                  {latestEvent.risk_level}
+                </RiskBadge>
+              )}
+            </div>
+
+            {latestEvent ? (
+              <div className="mt-4 space-y-4">
+                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-mono text-slate-500">
+                    <span>Event: <strong className="text-slate-900">{latestEvent.event_id}</strong></span>
+                    <span>{latestEvent.loading_bay || 'Bay 01'}</span>
+                  </div>
+                  <div className="text-base font-extrabold text-slate-900 mt-1">
+                    {latestEvent.behaviour_type.replace(/_/g, ' ')}
+                  </div>
+                </div>
+
+                {/* What Happened */}
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                    What Happened
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800 mt-1 leading-relaxed">
+                    {latestEvent.observed_behaviour || 'Unsafe material movement sequence recorded.'}
+                  </p>
+                </div>
+
+                {/* Why It Matters */}
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                    Why It Matters
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800 mt-1 leading-relaxed">
+                    {latestEvent.potential_risk || 'Potential product breakage, carton structural failure, or packaging seam tear.'}
+                  </p>
+                </div>
+
+                {/* What To Do */}
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                    What To Do
+                  </div>
+                  <p className="text-sm font-semibold text-sky-800 bg-sky-50 border border-sky-200 p-2.5 rounded-lg mt-1 leading-relaxed">
+                    {latestEvent.recommended_action || 'Inspect the product, check packaging seals, and reinforce safe handling procedures.'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-500 space-y-2">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                <p className="text-base font-bold text-slate-700">No active incidents</p>
+                <p className="text-xs text-slate-500">When an event occurs, root-cause explanations and supervisor actions will appear here.</p>
+              </div>
+            )}
+          </div>
+
+          {latestEvent && (
+            <div className="pt-4 mt-4 border-t border-slate-100">
+              <button
+                onClick={() => onSelectIncident(latestEvent)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition-colors"
+              >
+                <span>View Full Evidence in Safety Events</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 4. Visual Operational Process: SEE -> UNDERSTAND -> ASSESS -> ACT -> PREVENT */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+        <div className="pb-3 mb-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-sans">
+              CareGuard Operational Intelligence Pipeline
+            </h2>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              How CareGuard AI transforms raw video into proactive damage prevention
             </p>
           </div>
-          <span className="text-[10px] text-slate-400 font-mono">
-            7-Stage Intelligent Processing
+          <span className="text-xs font-bold font-mono px-2.5 py-1 rounded bg-sky-50 text-sky-700 border border-sky-200">
+            5-Stage Processing
           </span>
         </div>
 
-        {/* 7 Staggered Pipeline Nodes */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-2.5">
-          {pipelineSteps.map((p, idx) => {
-            const Icon = p.icon;
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          {pipelineSteps.map((step, idx) => {
+            const Icon = step.icon;
             return (
               <div
-                key={p.step}
-                className={`p-3 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-sky-50/30 hover:border-sky-200 transition-all flex flex-col justify-between group ${
-                  pipelineReveal.isVisible ? `animate-fade-in-up stagger-${idx + 1}` : ''
-                }`}
+                key={step.step}
+                className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-colors flex flex-col justify-between"
               >
                 <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono font-bold text-slate-400 group-hover:text-sky-600">
-                      #{p.step}
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-extrabold font-mono text-sky-600 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                      {step.step} {step.action}
                     </span>
-                    <Icon className="w-4 h-4 text-slate-400 group-hover:text-sky-600 transition-colors" />
+                    <Icon className="w-4 h-4 text-slate-600" />
                   </div>
-                  <h3 className="text-[11px] font-bold text-slate-900 mt-2 leading-tight">
-                    {p.title}
-                  </h3>
-                  <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                    {p.desc}
+                  <div className="text-sm font-extrabold text-slate-900 mt-1">
+                    {step.title}
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed">
+                    {step.desc}
                   </p>
-                </div>
-                <div className="mt-3 pt-2 border-t border-slate-200/60">
-                  <span className="text-[9px] font-mono font-bold text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded block text-center truncate">
-                    {p.tag}
-                  </span>
                 </div>
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* 3. LIVE INTELLIGENCE VIEWPORT & RESPONSIBLE AI BREAKDOWN (60/40 SPLIT) */}
-      {/* ========================================================================= */}
-      <div
-        ref={liveStreamReveal.ref}
-        className={`grid grid-cols-1 xl:grid-cols-12 gap-6 transition-all duration-700 ${
-          liveStreamReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        {/* Left 7-Cols: Live MJPEG Video Stream with High-Tech Frame */}
-        <div className="xl:col-span-7 space-y-3">
-          <div className="bg-slate-950 rounded-xl overflow-hidden border border-slate-800 shadow-md relative aspect-[16/10] flex items-center justify-center group">
-            <img
-              src="/api/video/feed"
-              alt="CareGuard Live Video Feed"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="%230b1120"/><text x="50%" y="50%" fill="%2364748b" font-family="sans-serif" font-size="14" text-anchor="middle">CareGuard AI Perception Engine Active</text></svg>';
-              }}
-            />
-
-            {/* Top-Left Telemetry Overlay */}
-            <div className="absolute top-3 left-3 bg-slate-900/90 backdrop-blur-sm border border-slate-700/80 rounded-lg px-3 py-1.5 text-white text-xs flex items-center gap-2.5 font-mono shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="font-bold text-[11px] text-white">LIVE</span>
-              </div>
-              <span className="text-slate-600">|</span>
-              <span className="text-slate-300 text-[11px]">{videoState?.fps || 0} FPS</span>
-              <span className="text-slate-600">|</span>
-              <span className="text-sky-300 text-[11px]">{videoState?.active_tracks_count || 0} Tracks</span>
-            </div>
-
-            {/* Top-Right Risk Indicator */}
-            <div className="absolute top-3 right-3">
-              <RiskBadge level={currentRisk} size="md">
-                {currentRisk === 'GREEN' ? 'SAFE' : (currentRisk === 'YELLOW' ? 'ATTENTION' : (currentRisk === 'ORANGE' ? 'HIGH RISK' : 'CRITICAL'))}
-              </RiskBadge>
-            </div>
-
-            {/* Bottom Floating Bar */}
-            <div className="absolute bottom-3 inset-x-3 bg-slate-900/90 backdrop-blur-sm border border-slate-700/80 rounded-lg px-3 py-2 flex items-center justify-between text-xs text-white">
-              <div className="flex items-center gap-2 font-mono text-[11px]">
-                <MapPin className="w-3.5 h-3.5 text-sky-400" />
-                <span className="text-slate-300">ACTIVE MONITORING ZONE: BAY 01 • GENERAL STAGING</span>
-              </div>
-              <span className="text-slate-400 text-[10px] font-mono">
-                {videoState?.last_frame_timestamp ? videoState.last_frame_timestamp.split(' ')[1] : 'ACTIVE'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-            <span className="font-mono text-[11px]">
-              Source: <b>{videoState?.video_file || (videoState?.source_type === 'camera' ? 'Webcam #0' : 'Synthetic Stream')}</b>
-            </span>
-            <button
-              onClick={onNavigateToMonitoring}
-              className="text-sky-600 hover:text-sky-700 font-semibold flex items-center gap-1 text-xs"
-            >
-              <span>Switch Sources & Presets</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Right 5-Cols: LIVE SAFETY EVENT & 3-TIER RESPONSIBLE AI PANEL */}
-        <div className="xl:col-span-5 flex flex-col justify-between space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex-1 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-                    LIVE SAFETY EVENT
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Responsible AI Sequence: Behaviour → Risk → Action
-                  </p>
-                </div>
-                {currentEvent && (
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded font-mono uppercase ${
-                    currentEvent.is_simulated
-                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  }`}>
-                    {currentEvent.is_simulated ? 'SIMULATED SCENARIO' : 'REAL CV DETECTED'}
-                  </span>
-                )}
-              </div>
-
-              {currentEvent ? (
-                <div className="space-y-3">
-                  {/* Event Title & Risk Level */}
-                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-start justify-between">
-                    <div>
-                      <span className="text-[10px] font-mono text-slate-400 block">{currentEvent.event_id}</span>
-                      <h4 className="text-xs font-bold text-slate-900 mt-0.5">{currentEvent.behaviour_type}</h4>
-                      <span className="text-[11px] text-slate-500 font-mono mt-0.5 block">{currentEvent.loading_bay || 'Bay 01 • General Staging'}</span>
-                    </div>
-                    <RiskBadge level={currentEvent.risk_level} size="md">
-                      {currentEvent.risk_level}
-                    </RiskBadge>
-                  </div>
-
-                  {/* Tier 1: Observed Behaviour */}
-                  <div className="p-3 rounded-lg bg-sky-50/60 border border-sky-100">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-sky-900">
-                      <span className="w-4 h-4 rounded bg-sky-200 text-sky-800 flex items-center justify-center text-[10px] font-mono">1</span>
-                      <span>Observed Behaviour (Sensor Telemetry)</span>
-                    </div>
-                    <p className="text-xs text-slate-700 mt-1 leading-relaxed font-medium">
-                      {currentEvent.observed_behaviour}
-                    </p>
-                  </div>
-
-                  {/* Tier 2: Potential Damage Risk */}
-                  <div className="p-3 rounded-lg bg-amber-50/60 border border-amber-100">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                      <span className="w-4 h-4 rounded bg-amber-200 text-amber-800 flex items-center justify-center text-[10px] font-mono">2</span>
-                      <span>Potential Damage Risk</span>
-                    </div>
-                    <p className="text-xs text-slate-700 mt-1 leading-relaxed font-medium">
-                      {currentEvent.potential_risk}
-                    </p>
-                  </div>
-
-                  {/* Tier 3: Recommended Supervisor Action */}
-                  <div className="p-3 rounded-lg bg-emerald-50/60 border border-emerald-100">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
-                      <span className="w-4 h-4 rounded bg-emerald-200 text-emerald-800 flex items-center justify-center text-[10px] font-mono">3</span>
-                      <span>Recommended Supervisor Action</span>
-                    </div>
-                    <p className="text-xs text-slate-700 mt-1 leading-relaxed font-medium">
-                      {currentEvent.recommended_action}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-12 text-center text-slate-400 space-y-2">
-                  <ShieldCheck className="w-10 h-10 mx-auto text-emerald-500" />
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">SAFE OPERATIONAL STATE</h4>
-                  <p className="text-xs text-slate-500">Normal material handling detected. No unsafe kinematics observed across monitored zones.</p>
-                </div>
-              )}
-            </div>
-
-            {currentEvent && (
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500 font-mono">
-                  Confidence: <b>{(currentEvent.confidence * 100).toFixed(0)}%</b>
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => onSelectIncident(currentEvent)}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors"
-                  >
-                    View Evidence
-                  </button>
-                  <button
-                    onClick={onNavigateToMonitoring}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-700 text-white transition-colors"
-                  >
-                    Live Console
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* 4. OPERATIONAL ANALYTICS: Shift Risk Trend & Zone Operational Health */}
-      {/* ========================================================================= */}
-      <div
-        ref={analyticsReveal.ref}
-        className={`grid grid-cols-1 lg:grid-cols-3 gap-6 transition-all duration-700 ${
-          analyticsReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        {/* Left 2-Cols: Shift Risk Trend Area Chart */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-            <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-                Shift Risk Trend
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Shows how recorded handling-risk events vary across operating hours/shifts
-              </p>
-            </div>
-            <span className="text-[10px] font-mono text-slate-400">Timestamped Telemetry</span>
-          </div>
-
-          <div className="h-64 w-full">
-            {hasTrendData ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={hourlyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0284c7" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#0284c7" stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="hour" stroke="#64748b" fontSize={10} />
-                  <YAxis stroke="#94a3b8" fontSize={11} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#ffffff',
-                      borderColor: '#cbd5e1',
-                      borderRadius: '0.5rem',
-                      fontSize: '12px',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="risk_events"
-                    name="Risk Events"
-                    stroke="#0284c7"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#riskGrad)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-                <ShieldCheck className="w-8 h-8 text-emerald-500 mb-2" />
-                <p className="text-xs font-semibold text-slate-700">No risk events recorded in this period.</p>
-                <p className="text-[11px] text-slate-400 mt-0.5 max-w-sm">
-                  Operations across morning and afternoon shifts remain within safe kinematic boundaries.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right 1-Col: Zone Operational Health */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-                  Zone Risk Health
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Real-time condition across tracked warehouse zones
-                </p>
-              </div>
-              <Warehouse className="w-4 h-4 text-slate-400" />
-            </div>
-
-            <div className="space-y-3">
-              {bayStats.map((bay) => {
-                const health = bay.health_score ?? Math.max(0, 100 - (bay.incident_count * 8));
-                return (
-                  <div
-                    key={bay.bay_id}
-                    className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 flex items-center justify-between"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-900">{bay.name}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">{bay.bay_id}</span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        {bay.incident_count} event(s) • {bay.status}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded ${
-                        health >= 85
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : (health >= 70 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200')
-                      }`}>
-                        {health}% Health
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-4 p-2.5 rounded-lg bg-sky-50 border border-sky-100 text-[11px] text-sky-900">
-            <span className="font-bold block">Supervisor Guidance:</span>
-            {totalIncidents > 0
-              ? 'Ensure Bay 1 staging buffer is cleared periodically and hand trolleys are allocated to prevent floor dragging.'
-              : 'All monitored staging and transit zones are operating within optimal safety clearance.'}
-          </div>
         </div>
       </div>
     </div>

@@ -136,11 +136,19 @@ export const api = {
   },
 
   // Assistant Chat
-  askAssistant: async (message: string): Promise<{ reply: string; suggested_actions?: string[] }> => {
+  askAssistant: async (
+    message: string,
+    conversation_history?: Array<{ sender: string; text: string }>
+  ): Promise<{
+    reply: string;
+    structured_data?: Record<string, any>;
+    suggested_actions?: string[];
+    source_context?: string;
+  }> => {
     const res = await fetch(`${BASE_URL}/assistant/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, conversation_history }),
     });
     if (!res.ok) throw new Error('Failed to ask assistant');
     return res.json();

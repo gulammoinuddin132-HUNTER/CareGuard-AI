@@ -1,27 +1,17 @@
 import React from 'react';
 import {
   ShieldCheck,
-  Award,
-  GraduationCap,
-  TrendingUp,
-  AlertOctagon,
   CheckCircle2,
-  ArrowUpRight,
-  Sparkles,
-  ClipboardCheck,
-  AlertTriangle,
-  Lightbulb,
-  ArrowRight,
-  Target,
-  Wrench,
-  Users,
+  GraduationCap,
+  Boxes,
   MapPin,
   Clock,
-  HelpCircle,
-  TrendingDown,
+  ArrowRight,
+  AlertTriangle,
+  Lightbulb,
+  Wrench,
 } from 'lucide-react';
 import { AnimatedCounter } from '../components/ui/AnimatedCounter';
-import { useScrollReveal } from '../hooks/useScrollReveal';
 import { PreventionMetrics, SummaryKPIs, StructuredRecommendation } from '../types/warehouse';
 
 interface PreventionPageProps {
@@ -33,10 +23,6 @@ export const PreventionPage: React.FC<PreventionPageProps> = ({
   prevention,
   summary,
 }) => {
-  const bannerReveal = useScrollReveal();
-  const coachingReveal = useScrollReveal();
-  const recommendationsReveal = useScrollReveal();
-
   const safeRatio = summary?.risk_free_observation_ratio ?? (prevention?.safe_handling_ratio || 100.0);
   const protectedUnits = summary?.potentially_protected_units ?? (prevention?.potential_damage_prevented || 0);
   const interventionsLogged = prevention?.interventions_logged || 0;
@@ -45,99 +31,103 @@ export const PreventionPage: React.FC<PreventionPageProps> = ({
   const patterns = prevention?.recurring_risk_patterns || [];
 
   return (
-    <div className="space-y-7 animate-fade-in text-slate-800">
-      {/* 1. Prevention Impact Banner: Shift from Detection to Prevention */}
-      <div
-        ref={bannerReveal.ref}
-        className={`bg-slate-900 rounded-xl p-6 text-white border border-slate-800 shadow-md relative overflow-hidden transition-all duration-700 ${
-          bannerReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 text-sky-400 text-[10px] font-mono font-bold mb-3 border border-slate-700">
-            <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-            <span>PROACTIVE WAREHOUSE INTELLIGENCE</span>
+    <div className="space-y-6 animate-fade-in text-slate-800">
+      {/* 1. Header Banner */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight font-sans">
+              Damage Prevention
+            </h1>
+            <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200">
+              Process Improvement
+            </span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
-            <span>Damage Detection</span>
-            <span className="text-sky-400">→</span>
-            <span className="text-emerald-400">Damage Prevention</span>
-          </h1>
-          <p className="text-slate-300 text-xs mt-2 leading-relaxed">
-            CareGuard AI detects unsafe handling kinematics at early sequence stages before packaging failure or drop damage occurs, empowering warehouse supervisors to intervene and eliminate risk at the source.
+          <p className="text-sm sm:text-base text-slate-600 font-semibold mt-1">
+            Use recent safety events to identify repeated handling problems and practical fixes before packages are damaged
           </p>
         </div>
       </div>
 
-      {/* 2. Prevention Metrics KPI Cards with Animated Counters */}
+      {/* 2. KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+        {/* Potentially Protected Units */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[10px] font-bold font-mono text-slate-500 uppercase tracking-wider">
+            <div className="text-xs font-bold font-mono text-slate-500 uppercase tracking-wider">
               Potentially Protected Units
             </div>
-            <div className="text-2xl font-extrabold font-mono text-emerald-600 mt-1 flex items-baseline gap-1">
+            <div className="text-3xl font-extrabold font-mono text-emerald-600 mt-2 flex items-baseline gap-1">
               <span>~</span>
               <AnimatedCounter value={protectedUnits} />
-              <span className="text-xs text-slate-500 font-normal">units</span>
+              <span className="text-xs text-slate-500 font-medium">units</span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">Estimated via timely supervisor interventions</p>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              Cargo protected through timely supervisor intervention
+            </p>
           </div>
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="text-[10px] font-bold font-mono text-slate-500 uppercase tracking-wider">
-              Risk-Free Handling Ratio
-            </div>
-            <div className="text-2xl font-extrabold font-mono text-sky-700 mt-1 flex items-baseline">
-              <AnimatedCounter value={safeRatio} decimals={1} />
-              <span className="text-xs ml-0.5">%</span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">Compliant handling sequences</p>
-          </div>
-          <div className="w-10 h-10 rounded-lg bg-sky-50 text-sky-700 border border-sky-200 flex items-center justify-center">
-            <CheckCircle2 className="w-5 h-5" />
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-6 h-6" />
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
+        {/* Safe Handling % */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[10px] font-bold font-mono text-slate-500 uppercase tracking-wider">
-              Supervisor Interventions Logged
+            <div className="text-xs font-bold font-mono text-slate-500 uppercase tracking-wider">
+              Safe Handling Ratio
             </div>
-            <div className="text-2xl font-extrabold font-mono text-indigo-700 mt-1">
+            {(summary?.total_events ?? 0) === 0 ? (
+              <div className="text-3xl font-extrabold font-mono text-slate-400 mt-2">
+                —
+              </div>
+            ) : (
+              <div className="text-3xl font-extrabold font-mono text-sky-700 mt-2 flex items-baseline gap-0.5">
+                <AnimatedCounter value={safeRatio} decimals={1} />
+                <span className="text-sm font-bold">%</span>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              {(summary?.total_events ?? 0) === 0 ? 'No handling activity recorded yet' : 'Compliant handling cycles without drops or dragging'}
+            </p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* Supervisor Actions */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold font-mono text-slate-500 uppercase tracking-wider">
+              Supervisor Actions
+            </div>
+            <div className="text-3xl font-extrabold font-mono text-indigo-700 mt-2">
               <AnimatedCounter value={interventionsLogged} />
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">Logged in audit trail</p>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              Actions logged in safety audit trail
+            </p>
           </div>
-          <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center">
-            <GraduationCap className="w-5 h-5" />
+          <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center shrink-0">
+            <GraduationCap className="w-6 h-6" />
           </div>
         </div>
       </div>
 
-      {/* 3. Structured Operational Recommendations (6-Part Schema) */}
-      <div
-        ref={recommendationsReveal.ref}
-        className={`bg-white rounded-xl border border-slate-200 p-5 shadow-xs transition-all duration-700 ${
-          recommendationsReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+      {/* 3. Practical Prevention Fixes (Evidence-Backed) */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+        <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
           <div>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-              Structured Damage Prevention Recommendations
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-sans">
+              Practical Prevention Fixes
             </h2>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Root-cause analysis and operational changes derived from telemetry evidence
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              What problem occurred, why it matters, and what to change based on actual events
             </p>
           </div>
-          <span className="text-[10px] font-mono bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded font-bold">
-            CAREGUARD POLICY
+          <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded border border-slate-200">
+            {recommendations.length} Active Recommendation(s)
           </span>
         </div>
 
@@ -146,154 +136,175 @@ export const PreventionPage: React.FC<PreventionPageProps> = ({
             {recommendations.map((rec) => (
               <div
                 key={rec.id}
-                className="p-4 rounded-lg border border-slate-200 bg-slate-50/60 hover:bg-white hover:border-slate-300 hover:shadow-xs transition-all flex flex-col justify-between"
+                className="p-5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-white hover:border-slate-300 transition-all flex flex-col justify-between space-y-3"
               >
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded font-mono ${
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold font-mono text-slate-500">
+                      {rec.id} • {rec.where}
+                    </span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${
                       rec.priority === 'CRITICAL'
                         ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                        : rec.priority === 'HIGH'
-                        ? 'bg-orange-50 text-orange-700 border border-orange-200'
-                        : 'bg-sky-50 text-sky-700 border border-sky-200'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200'
                     }`}>
-                      {rec.priority} PRIORITY
+                      {rec.priority} Priority
                     </span>
-                    {rec.equipment_tag && (
-                      <span className="text-[10px] font-mono text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                        Suggested: {rec.equipment_tag}
-                      </span>
-                    )}
                   </div>
 
-                  <h3 className="text-xs font-bold text-slate-900 mb-3">{rec.what_happened}</h3>
+                  {/* Problem */}
+                  <div className="mt-2">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                      Repeated Problem
+                    </div>
+                    <div className="text-base font-extrabold text-slate-900 mt-0.5">
+                      {rec.what_happened}
+                    </div>
+                  </div>
 
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-bold font-mono text-slate-400 uppercase min-w-[70px]">WHERE:</span>
-                      <span className="text-slate-700 font-medium">{rec.where}</span>
+                  {/* Why it matters */}
+                  <div className="mt-2">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                      Why It Matters
                     </div>
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-bold font-mono text-slate-400 uppercase min-w-[70px]">WHEN:</span>
-                      <span className="text-slate-600 font-mono text-[11px]">{rec.when}</span>
+                    <p className="text-sm font-semibold text-slate-700 mt-0.5 leading-relaxed">
+                      {rec.why_it_matters}
+                    </p>
+                  </div>
+
+                  {/* What to change */}
+                  <div className="mt-2">
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider font-mono">
+                      What To Change
                     </div>
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-bold font-mono text-slate-400 uppercase min-w-[70px]">WHY IT MATTERS:</span>
-                      <span className="text-slate-700 leading-snug">{rec.why_it_matters}</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-bold font-mono text-sky-700 uppercase min-w-[70px]">CHANGE:</span>
-                      <span className="text-sky-900 font-medium leading-snug">{rec.what_to_change}</span>
-                    </div>
+                    <p className="text-sm font-bold text-sky-900 bg-sky-50 border border-sky-200 p-2.5 rounded-lg mt-0.5 leading-relaxed">
+                      {rec.what_to_change}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-2.5 border-t border-slate-200 text-[11px] text-emerald-800 bg-emerald-50/70 p-2 rounded">
-                  <span className="font-bold block text-[10px] font-mono uppercase text-emerald-900">Expected Operational Effect:</span>
-                  <span>{rec.expected_operational_effect}</span>
+                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-semibold text-slate-600">
+                  <span>Expected Benefit: <strong>{rec.expected_operational_effect}</strong></span>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div className="p-8 text-center bg-slate-50 rounded-lg border border-dashed border-slate-200">
-            <ShieldCheck className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-            <div className="text-xs font-bold text-slate-700">Zero High-Risk Telemetry Incidents</div>
-            <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto">
-              No critical prevention recommendations required. All monitored handling operations currently comply with Godrej safe handling benchmarks.
+          <div className="py-12 text-center text-slate-500 space-y-2">
+            <Wrench className="w-10 h-10 text-slate-400 mx-auto" />
+            <p className="text-base font-bold text-slate-800">
+              Not enough data to recommend equipment changes yet.
+            </p>
+            <p className="text-xs text-slate-500">
+              When repeated handling issues (such as dragging or drops) are recorded, specific fixes will appear here.
             </p>
           </div>
         )}
       </div>
 
-      {/* 4. Section: "WHAT SHOULD THE SUPERVISOR DO NEXT?" & Equipment Gaps */}
-      <div
-        ref={coachingReveal.ref}
-        className={`grid grid-cols-1 lg:grid-cols-2 gap-6 transition-all duration-700 ${
-          coachingReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-        }`}
-      >
-        {/* Left: Recommended Supervisor Coaching Opportunities */}
+      {/* 4. Recurring Risk Patterns & Coaching Opportunities */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Recurring Risk Patterns */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+            <div className="pb-3 mb-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-                  Recommended Supervisor Coaching
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Targeted ergonomic & procedural coaching prioritized by damage risk
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-sans">
+                  Repeated Risk Patterns
+                </h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Handling patterns observed more than once in the active session
                 </p>
               </div>
-              <Users className="w-4 h-4 text-slate-400" />
             </div>
 
-            <div className="space-y-3">
-              {training.map((t) => (
-                <div key={t.id} className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded font-mono ${
-                      t.priority === 'CRITICAL' ? 'bg-rose-50 text-rose-700 border border-rose-200' : (t.priority === 'HIGH' ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-amber-50 text-amber-700 border border-amber-200')
-                    }`}>
-                      {t.priority} Priority
-                    </span>
-                    <span className="text-[11px] text-slate-500 font-mono bg-white px-2 py-0.5 rounded border border-slate-200">{t.target_bay}</span>
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-900 mt-2">{t.title}</h4>
-                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">{t.reason}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Shift Target: <b>Zero Unassisted Heavy Lifts</b></span>
-            <span className="font-mono text-sky-600 font-semibold">Bay 1 Priority</span>
-          </div>
-        </div>
-
-        {/* Right: Recurring Risk Patterns & Equipment Gaps */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 font-mono">
-                  Recurring Risk Patterns & Equipment Gaps
-                </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Identified systemic bottlenecks leading to improper handling
-                </p>
-              </div>
-              <Wrench className="w-4 h-4 text-amber-500" />
-            </div>
-
-            <div className="space-y-3">
-              {patterns.map((p, idx) => (
-                <div key={idx} className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-bold text-slate-800 text-xs">Identified Bottleneck #{idx + 1}</span>
-                    <span className="bg-white border border-slate-200 px-2 py-0.5 rounded font-mono text-[10px] font-bold text-slate-600">
+            {patterns.length > 0 ? (
+              <div className="space-y-3">
+                {patterns.map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-lg border border-slate-200 bg-slate-50 flex items-start justify-between gap-3"
+                  >
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">
+                        {p.pattern}
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium mt-0.5">
+                        Location: <strong>{p.zone || 'Staging Bay (Bay 1)'}</strong>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold font-mono bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded whitespace-nowrap">
                       {p.frequency}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-700 font-medium mt-1.5 leading-relaxed">
-                    {p.pattern}
-                  </p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-500 space-y-2">
+                <ShieldCheck className="w-8 h-8 text-emerald-500 mx-auto" />
+                <p className="text-base font-bold text-slate-800">No repeated risk pattern identified yet.</p>
+                <p className="text-xs text-slate-500">
+                  Warehouse operations are currently operating without recurring bottlenecks.
+                </p>
+              </div>
+            )}
           </div>
+        </div>
 
-          <div className="mt-4 p-3.5 rounded-lg bg-sky-50 border border-sky-100 text-xs text-sky-950 leading-relaxed">
-            <div className="flex items-center gap-1.5 font-bold font-mono text-sky-900 text-[11px] uppercase mb-1">
-              <Lightbulb className="w-3.5 h-3.5 text-sky-700" />
-              <span>Suggested Equipment Deployment</span>
+        {/* Right: Supervisor Coaching Priorities */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="pb-3 mb-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 font-sans">
+                  Supervisor Coaching Priorities
+                </h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Targeted brief coaching topics derived from actual handler deviations
+                </p>
+              </div>
             </div>
-            Deploy two additional hydraulic hand trolleys to General Staging Bay during the 14:00 - 16:00 peak dispatch window to eliminate single-person carton dragging.
+
+            {training.length > 0 ? (
+              <div className="space-y-3">
+                {training.map((t) => (
+                  <div
+                    key={t.id}
+                    className="p-3.5 rounded-lg border border-slate-200 bg-slate-50 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold text-slate-900">
+                        {t.title}
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        t.priority === 'CRITICAL'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}>
+                        {t.priority}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-700 font-semibold leading-relaxed">
+                      Reason: {t.reason}
+                    </p>
+                    <div className="text-[11px] font-mono text-slate-500">
+                      Target Area: {t.target_bay}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-500 space-y-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+                <p className="text-base font-bold text-slate-800">No training interventions required right now.</p>
+                <p className="text-xs text-slate-500">
+                  Handlers are adhering to standard safe handling procedures.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 };
-

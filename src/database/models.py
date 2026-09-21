@@ -110,6 +110,9 @@ class WarehouseBehaviourRecord:
     severity_factors_json: Optional[str] = None
     evidence_frame_path: Optional[str] = None
     video_source: Optional[str] = None
+    status: str = "UNRESOLVED"
+    operator_action: Optional[str] = None
+    resolved_at: Optional[str] = None
     metadata_json: Optional[str] = None
     id: Optional[int] = None
 
@@ -138,6 +141,20 @@ class WarehouseBehaviourRecord:
             except Exception:
                 factors_dict = None
         d["severity_factors"] = factors_dict
+
+        # Assign standard loading bay from metadata or behaviour category
+        bay = meta_dict.get("loading_bay") or meta_dict.get("bay")
+        if not bay:
+            b_upper = str(self.behaviour_type).upper()
+            if "WALKWAY" in b_upper or "OUTSIDE" in b_upper:
+                bay = "Transit Corridor (Bay 2)"
+            elif "STACK" in b_upper or "RACK" in b_upper:
+                bay = "Storage Racking (Bay 3)"
+            elif "PALLET" in b_upper or "LOADING" in b_upper:
+                bay = "Dispatch Dock (Bay 4)"
+            else:
+                bay = "Staging Bay (Bay 1)"
+        d["loading_bay"] = bay
 
         # Normalize filesystem evidence path to web API route
         if self.evidence_frame_path:

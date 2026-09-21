@@ -20,17 +20,23 @@ def get_analytics_data():
     bays = backend.db.get_warehouse_bay_stats()
     summary = backend.db.get_warehouse_stats_summary()
 
-    # Shift comparisons
-    shift_comparison = [
-        {"shift": "Morning Shift (06:00 - 14:00)", "events": max(4, int(summary["total_events"] * 0.35)), "risky_events": max(1, int(summary["high_risk_events"] * 0.30)), "quality_score": 92},
-        {"shift": "Afternoon Shift (14:00 - 22:00)", "events": max(7, int(summary["total_events"] * 0.50)), "risky_events": max(3, int(summary["high_risk_events"] * 0.55)), "quality_score": 83},
-        {"shift": "Night Shift (22:00 - 06:00)", "events": max(2, int(summary["total_events"] * 0.15)), "risky_events": max(1, int(summary["high_risk_events"] * 0.15)), "quality_score": 95},
-    ]
+    # Real shift comparisons computed from timestamped events
+    shift_stats = backend.db.get_warehouse_shift_stats()
 
     return {
         "summary": summary,
         "behaviour_distribution": distribution,
         "hourly_trends": hourly,
-        "shift_comparison": shift_comparison,
+        "shift_stats": shift_stats,
+        "shift_comparison": [
+            {
+                "shift": s["shift"],
+                "events": s["incidents"],
+                "risky_events": s["critical_count"] + s["high_risk_count"],
+                "quality_score": s["handling_quality_score"],
+            }
+            for s in shift_stats
+        ],
         "bay_breakdown": bays,
+        "bay_stats": bays,
     }

@@ -505,33 +505,33 @@ export const LiveMonitoringPage: React.FC<LiveMonitoringPageProps> = ({
                         )}
                       </div>
 
-                      {/* 3-Tier Responsible AI Sequence */}
-                      <div className="p-3 rounded-lg bg-sky-50/60 border border-sky-100">
+                      {/* 3-Tier Operational Breakdown */}
+                      <div className="p-3 rounded-lg bg-sky-50/70 border border-sky-200">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-sky-900">
-                          <span className="w-4 h-4 rounded bg-sky-200 text-sky-800 flex items-center justify-center text-[10px] font-mono">1</span>
-                          <span>Observed Behaviour (Sensor Grounding)</span>
+                          <span className="w-4 h-4 rounded bg-sky-200 text-sky-800 flex items-center justify-center text-[10px] font-mono font-bold">1</span>
+                          <span>What Happened</span>
                         </div>
-                        <p className="text-xs text-slate-700 mt-1.5 leading-relaxed font-medium">
+                        <p className="text-xs sm:text-sm text-slate-800 mt-1 leading-relaxed font-semibold">
                           {currentEvent.observed_behaviour}
                         </p>
                       </div>
 
-                      <div className="p-3 rounded-lg bg-amber-50/60 border border-amber-100">
+                      <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-200">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                          <span className="w-4 h-4 rounded bg-amber-200 text-amber-800 flex items-center justify-center text-[10px] font-mono">2</span>
-                          <span>Potential Risk (Damage Vulnerability)</span>
+                          <span className="w-4 h-4 rounded bg-amber-200 text-amber-800 flex items-center justify-center text-[10px] font-mono font-bold">2</span>
+                          <span>Why It Matters</span>
                         </div>
-                        <p className="text-xs text-slate-700 mt-1.5 leading-relaxed font-medium">
+                        <p className="text-xs sm:text-sm text-slate-800 mt-1 leading-relaxed font-semibold">
                           {currentEvent.potential_risk}
                         </p>
                       </div>
 
-                      <div className="p-3 rounded-lg bg-emerald-50/60 border border-emerald-100">
+                      <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-900">
-                          <span className="w-4 h-4 rounded bg-emerald-200 text-emerald-800 flex items-center justify-center text-[10px] font-mono">3</span>
-                          <span>Recommended Supervisor Action</span>
+                          <span className="w-4 h-4 rounded bg-emerald-200 text-emerald-800 flex items-center justify-center text-[10px] font-mono font-bold">3</span>
+                          <span>What To Do</span>
                         </div>
-                        <p className="text-xs text-slate-700 mt-1.5 leading-relaxed font-medium">
+                        <p className="text-xs sm:text-sm text-slate-800 mt-1 leading-relaxed font-semibold">
                           {currentEvent.recommended_action}
                         </p>
                       </div>
@@ -539,8 +539,8 @@ export const LiveMonitoringPage: React.FC<LiveMonitoringPageProps> = ({
                   ) : (
                     <div className="py-12 text-center text-slate-400 space-y-2">
                       <ShieldCheck className="w-10 h-10 mx-auto text-emerald-500" />
-                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">SAFE OPERATIONAL STATE</h4>
-                      <p className="text-xs text-slate-500">Normal material handling in progress. No unsafe kinematics observed.</p>
+                      <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Normal Safe Handling</h4>
+                      <p className="text-xs text-slate-500 font-medium">No unsafe handling events detected. Material movements are operating within safe parameters.</p>
                     </div>
                   )}
                 </>

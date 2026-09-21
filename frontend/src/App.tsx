@@ -79,16 +79,22 @@ export const App: React.FC = () => {
     loadData();
     // Periodic poll for video state & live incident stream synchronization
     let lastSeenEventId: string | null = null;
+    let pollCount = 0;
     const timer = setInterval(async () => {
       if (isUploadingRef.current) return;
       try {
         const state = await api.getVideoState();
         setVideoState(state);
 
-        // If a new event is detected or active event changes, automatically sync audit log & KPIs
+        pollCount += 1;
         const currentEvtId = state.current_event?.event_id;
-        if (currentEvtId && currentEvtId !== lastSeenEventId) {
-          lastSeenEventId = currentEvtId;
+        const eventChanged = currentEvtId && currentEvtId !== lastSeenEventId;
+        
+        // Refresh full overview every ~4.8s (4 ticks) or immediately when an active event changes
+        if (eventChanged || pollCount % 4 === 0) {
+          if (eventChanged) {
+            lastSeenEventId = currentEvtId;
+          }
           const [incidentsData, overviewData] = await Promise.all([
             api.getIncidents({ limit: 100 }),
             api.getOverview(),
@@ -97,6 +103,10 @@ export const App: React.FC = () => {
           setRecentIncidents(overviewData.recent_incidents);
           setSummary(overviewData.summary);
           setBehaviourDist(overviewData.behaviour_distribution);
+          setHourlyTrends(overviewData.hourly_trends);
+          setBayStats(overviewData.bay_stats);
+          setShiftStats(overviewData.shift_stats || []);
+          setPrevention(overviewData.prevention_metrics);
         }
       } catch {
         // ignore fetch failures during transitions
@@ -141,8 +151,40 @@ export const App: React.FC = () => {
     await loadData();
   };
 
-  const handleAskAssistant = async (message: string) => {
-    return api.askAssistant(message);
+  const handleAskAssistant = async (
+    message: string,
+    history?: Array<{ sender: string; text: string }>
+  ) => {
+    return api.askAssistant(message, history);
+  };
+
+  const handleNavigateToIncident = (eventId: string) => {
+    const cleanId = eventId.trim();
+    const found = allIncidents.find(
+      (inc) => inc.event_id === cleanId || inc.event_id.includes(cleanId)
+    );
+    if (found) {
+      setSelectedIncident(found);
+    } else {
+      // Create lightweight placeholder incident for the view
+      const now = new Date().toISOString();
+      setSelectedIncident({
+        event_id: cleanId,
+        behaviour_type: 'PRODUCT_DROPPED',
+        risk_level: 'RED',
+        confidence: 0.95,
+        start_timestamp: now,
+        end_timestamp: now,
+        duration_seconds: 1.2,
+        observed_behaviour: `Incident ${cleanId} referenced during Safety Copilot session.`,
+        potential_risk: 'Ground impact and package structural compromise.',
+        recommended_action: 'Perform physical goods inspection and verify handler safety compliance.',
+        loading_bay: 'Bay 1',
+        product_track_id: 1,
+        person_track_id: 1,
+      });
+    }
+    setCurrentTab('incidents');
   };
 
   const handleSaveSettings = async (settings: any) => {
@@ -154,7 +196,7 @@ export const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <Header
         videoState={videoState}
-        qualityScore={summary?.handling_quality_score || 88}
+        qualityScore={summary?.handling_quality_score}
         onRefresh={loadData}
         onTogglePlay={handleTogglePlay}
       />
@@ -221,6 +263,7 @@ export const App: React.FC = () => {
           {currentTab === 'assistant' && (
             <AssistantPage
               onAskQuestion={handleAskAssistant}
+              onNavigateToIncident={handleNavigateToIncident}
             />
           )}
 

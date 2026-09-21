@@ -117,6 +117,7 @@ class TemporalWarehouseBehaviourEngine:
         self._stepping_start: Dict[str, float] = {}
         self._stack_relationship_frames: Dict[Tuple[int, int], int] = {}
         self._stack_tilt_frames: Dict[Tuple[int, int], int] = {}
+        self._stable_stack_rest_frames: Dict[Tuple[int, int], int] = {}
 
     def set_frame_dimensions(self, width: int, height: int) -> None:
         """Dynamically calibrates behaviour thresholds and zones to native video resolution."""
@@ -160,6 +161,7 @@ class TemporalWarehouseBehaviourEngine:
         self._stepping_start.clear()
         self._stack_relationship_frames.clear()
         self._stack_tilt_frames.clear()
+        self._stable_stack_rest_frames.clear()
 
     def _generate_event_id(self, behaviour: WarehouseBehaviourType) -> str:
         prefix = "CG"
@@ -274,16 +276,16 @@ class TemporalWarehouseBehaviourEngine:
             if not product.current_bbox:
                 continue
 
+            # Behaviour 1: Product Dropped (Evaluated first to prevent falling cartons from false stepping triggers)
+            drop_ev = self._check_product_dropped(product, now, video_source, person_tracks=person_tracks)
+            if drop_ev:
+                new_events.append(drop_ev)
+                continue
+
             # Behaviour: Stepping on Product (Priority 5)
             step_ev = self._check_stepping_on_product(product, person_tracks, now, video_source)
             if step_ev:
                 new_events.append(step_ev)
-                continue
-
-            # Behaviour 1: Product Dropped
-            drop_ev = self._check_product_dropped(product, now, video_source, person_tracks=person_tracks)
-            if drop_ev:
-                new_events.append(drop_ev)
                 continue
 
             # Behaviour 12: Product Kicked / Foot Impact (Evaluated before throw to prevent misclassification)
@@ -541,53 +543,60 @@ class TemporalWarehouseBehaviourEngine:
         if len(history) < 3:
             return None
 
+        curr_state = history[-1]
+        current_y = curr_state.bottom_y
+
+        # Compute apex (highest elevated point / minimum bottom_y) across history window
+        min_bottom_y = min(s.bottom_y for s in history)
+        apex_index = next((i for i, s in enumerate(history) if s.bottom_y == min_bottom_y), 0)
+        total_descent = current_y - min_bottom_y
+
         # 1. GROUNDED / ROLLING / SLIDING REJECTION:
-        # If product has been in continuous contact with floor throughout the entire history window,
+        # If product has remained continuously at floor level without vertical descent (< 25px),
         # it was never elevated or dropped. It is rolling, sliding, or resting on floor.
-        is_continuously_grounded = all(
-            (s.bottom_y >= (self.floor_y_threshold - 25) or s.is_grounded) for s in history
+        is_continuously_grounded = (total_descent < 25.0) and all(
+            (s.bottom_y >= (self.floor_y_threshold - 15) or s.is_grounded) for s in history
         )
         if is_continuously_grounded:
             return None
 
-        initial_s = history[0]
-        curr_state = history[-1]
-        initial_y = initial_s.bottom_y
-        current_y = curr_state.bottom_y
-        total_descent = current_y - initial_y
-
-        initial_x = initial_s.centroid[0]
-        current_x = curr_state.centroid[0]
-        total_dx = abs(current_x - initial_x)
+        # Measure horizontal displacement after the apex
+        post_apex_history = history[apex_index:]
+        if len(post_apex_history) > 1:
+            total_dx = abs(post_apex_history[-1].centroid[0] - post_apex_history[0].centroid[0])
+        else:
+            total_dx = abs(curr_state.centroid[0] - history[0].centroid[0])
 
         max_downward_vy = max((s.velocity[1] for s in history), default=0.0)
-        max_vx = max((abs(s.velocity[0]) for s in history), default=0.0)
+        max_vx = max((abs(s.velocity[0]) for s in post_apex_history), default=0.0)
 
         # 2. Reject if product is currently HELD or moving with handler (lowering under control)
         if product.interaction_state == ProductInteractionState.HELD:
             return None
         rel_dy = abs(product.relative_motion[1])
-        if product.associated_person_id and rel_dy <= 65.0 and curr_state.speed < 80.0:
+        if product.associated_person_id and rel_dy <= 60.0 and curr_state.speed < 80.0 and not curr_state.is_grounded:
             return None
 
         # 3. HORIZONTAL TRANSLATION / ROLLING DOMINANCE REJECTION:
-        # In rolling or dragging, horizontal translation is significant and dominates vertical descent.
-        # A true drop is primarily vertical free-fall.
-        if total_dx >= 1.25 * max(1.0, total_descent):
+        # In pure rolling or dragging without vertical drop, horizontal translation dominates.
+        # If significant vertical descent occurred (>= 35px), allow accompanying forward momentum from walking release.
+        if total_descent < self.drop_min_displacement_px and total_dx >= 1.25 * max(1.0, total_descent):
             return None
-        if max_vx > 1.30 * max_downward_vy:
+        if max_downward_vy < self.drop_velocity_threshold and max_vx > 1.40 * max(1.0, max_downward_vy):
             return None
 
         # 4. SEQUENCE CHECK: Was genuinely elevated / airborne prior to descent
-        recent_interactions = product.get_recent_interaction_history(6)
+        recent_interactions = product.get_recent_interaction_history(8)
         early_history = history[:max(1, len(history) // 2)]
         was_elevated_in_history = any(
-            (s.bottom_y < (self.floor_y_threshold - 45) or s.elevation_ratio > 0.15) for s in early_history
+            (s.bottom_y < (self.floor_y_threshold - 20) or s.elevation_ratio > 0.08) for s in early_history
         )
         was_held_or_airborne = (
             ProductInteractionState.HELD in recent_interactions
             or ProductInteractionState.AIRBORNE in recent_interactions
-            or was_elevated_in_history
+            or ProductInteractionState.HELD in getattr(product, "interaction_history", [])
+            or getattr(product, "carrying_state", "NONE") in ("HOLDING", "ADJACENT", "TOWING")
+            or (product.associated_person_id is not None and (was_elevated_in_history or total_descent >= 35.0))
         )
         if not was_held_or_airborne:
             return None
@@ -596,7 +605,8 @@ class TemporalWarehouseBehaviourEngine:
         is_separated = (
             product.interaction_state in (ProductInteractionState.AIRBORNE, ProductInteractionState.FREE, ProductInteractionState.GROUND_CONTACT)
             or product.associated_person_id is None
-            or product.relative_motion[1] > 75.0
+            or product.relative_motion[1] > 45.0
+            or max_downward_vy >= self.drop_velocity_threshold
         )
         if not is_separated:
             return None
@@ -607,8 +617,8 @@ class TemporalWarehouseBehaviourEngine:
             return None
 
         # 7. GROUND IMPACT & SETTLEMENT:
-        hit_ground = (curr_state.bottom_y >= (self.floor_y_threshold - 20)) or (curr_state.is_grounded) or (product.interaction_state == ProductInteractionState.GROUND_CONTACT)
-        is_landing_or_stopped = (curr_state.speed < 55.0) or (curr_state.velocity[1] <= max_downward_vy * 0.55) or (curr_state.bottom_y >= initial_y + total_descent * 0.80)
+        hit_ground = (curr_state.bottom_y >= (self.floor_y_threshold - 25)) or (curr_state.is_grounded) or (product.interaction_state == ProductInteractionState.GROUND_CONTACT)
+        is_landing_or_stopped = (curr_state.speed < 70.0) or (curr_state.velocity[1] <= max_downward_vy * 0.65) or (curr_state.bottom_y >= min_bottom_y + total_descent * 0.75)
 
         if not (hit_ground and is_landing_or_stopped):
             return None
@@ -690,7 +700,7 @@ class TemporalWarehouseBehaviourEngine:
             duration_seconds=round(history[-1].timestamp - history[0].timestamp, 2),
             observed_behaviour=f"Product Track #{product.track_id} separated from carry/elevation, underwent vertical free-fall descent ({max_downward_vy:.0f} px/s, ~{est_drop_height_m}m drop), and impacted floor at {curr_state.bottom_y}px.",
             potential_risk="Impact deceleration can damage internal product mechanisms and compromise container structural integrity.",
-            recommended_action="Quarantine and inspect product integrity before dispatch; use two-person lift or mechanical hoist for heavy goods.",
+            recommended_action="Inspect the product for possible damage and review the handling sequence; verify packaging integrity before dispatch.",
             product_track_id=product.track_id,
             person_track_id=h_id,
             product_bbox=product.current_bbox,
@@ -1795,22 +1805,44 @@ class TemporalWarehouseBehaviourEngine:
                 combined_h = max(top_b[1] + top_b[3], bot_b[1] + bot_b[3]) - combined_y
                 stack_bbox = (combined_x, combined_y, combined_w, combined_h)
 
+                pair_key = (top.track_id, bot.track_id)
+                top_speed = top.current_state.speed if top.current_state else 0.0
+                bot_speed = bot.current_state.speed if bot.current_state else 0.0
+
+                # Track confirmed resting stack configuration history
+                is_vertically_stacked = (top_b[1] < bot_b[1]) and (gap_y <= 35) and (min_w > 0 and x_overlap >= min_w * 0.35)
+                is_resting_together = is_vertically_stacked and (top_speed < 20.0) and (bot_speed < 20.0) and (
+                    top.interaction_state != ProductInteractionState.AIRBORNE and
+                    bot.interaction_state != ProductInteractionState.AIRBORNE
+                )
+                if is_resting_together:
+                    self._stable_stack_rest_frames[pair_key] = self._stable_stack_rest_frames.get(pair_key, 0) + 1
+                elif gap_y > 80 or x_overlap <= 0:
+                    self._stable_stack_rest_frames[pair_key] = 0
+
                 # -------------------------------------------------------------
                 # BEHAVIOUR 10: UNSAFE LOADING / UNLOADING SEQUENCE
                 # -------------------------------------------------------------
-                # Evaluates when bottom box is being pulled out from under top box
-                bot_speed = bot.current_state.speed if bot.current_state else 0.0
-                top_speed = top.current_state.speed if top.current_state else 0.0
-                is_contact_aligned = (gap_y <= 35) and (x_overlap >= min_w * 0.30) and (top_b[1] < bot_b[1])
+                # Strict multi-object requirement:
+                # 1. (top, bot) MUST have a validated resting stack history (>= 2 frames at rest together)
+                # 2. Bottom box is extracted/pulled away (speed >= 30 px/s with handler interaction)
+                # 3. Upper box remained overhead (top_speed < 20 px/s)
+                prior_rest_frames = self._stable_stack_rest_frames.get(pair_key, 0)
+                is_extraction_motion = (bot_speed >= 30.0) and (
+                    bot.carrying_state in ("HOLDING", "TOWING") or bot.associated_person_id is not None
+                )
+                is_upper_overhead = (top_speed < 20.0) and (top_b[1] < bot_b[1])
+                has_stable_stack_history = prior_rest_frames >= 2
 
-                if is_contact_aligned and bot_speed >= 30.0 and top_speed < 15.0 and bot.carrying_state in ("HOLDING", "TOWING"):
+                if has_stable_stack_history and is_extraction_motion and is_upper_overhead and (gap_y <= 60) and (x_overlap >= min_w * 0.15):
                     cooldown_key_10 = f"UNSAFE_UNLOAD_{top.track_id}_{bot.track_id}"
                     if cooldown_key_10 not in self._last_event_time or (now - self._last_event_time[cooldown_key_10]) >= self.cooldown_seconds:
                         self._last_event_time[cooldown_key_10] = now
+                        self._stable_stack_rest_frames[pair_key] = 0
 
                         sev_info_10 = calculate_risk_severity(
                             WarehouseBehaviourType.UNSAFE_LOADING_SEQUENCE,
-                            kinematics={"bot_speed": bot_speed, "top_speed": top_speed},
+                            kinematics={"bot_speed": bot_speed, "top_speed": top_speed, "prior_rest_frames": prior_rest_frames},
                             confidence=bot.confidence,
                         )
                         risk_level_10 = sev_info_10["severity"]
@@ -1827,8 +1859,9 @@ class TemporalWarehouseBehaviourEngine:
 
                         trig_conds_10 = {
                             "bot_speed": f"{bot_speed:.1f} px/s (thresh: 30 px/s)",
-                            "top_speed": f"{top_speed:.1f} px/s (stationary thresh: <15 px/s)",
+                            "top_speed": f"{top_speed:.1f} px/s (overhead thresh: <20 px/s)",
                             "carrying_state": bot.carrying_state,
+                            "prior_rest_stack_frames": prior_rest_frames,
                         }
                         temp_trace, kin_trace, rule_trace, debug_trace = self._build_event_traces(
                             event_id=event_id_10,
@@ -1840,7 +1873,7 @@ class TemporalWarehouseBehaviourEngine:
                             start_time=now,
                             trigger_time=now,
                             trigger_conditions=trig_conds_10,
-                            extra_kinematics={"bot_speed": bot_speed, "top_speed": top_speed},
+                            extra_kinematics={"bot_speed": bot_speed, "top_speed": top_speed, "prior_rest_frames": prior_rest_frames},
                         )
 
                         events.append(WarehouseBehaviourEvent(

@@ -19,6 +19,9 @@ export interface WarehouseEvent {
   person_track_id?: number | null;
   evidence_frame_path?: string | null;
   video_source?: string | null;
+  status?: 'UNRESOLVED' | 'RESOLVED' | string;
+  operator_action?: string | null;
+  resolved_at?: string | null;
   metadata_json?: string | null;
   severity_reason?: string | null;
   severity_factors?: Record<string, any> | null;
@@ -29,8 +32,11 @@ export interface WarehouseEvent {
 
 export interface SummaryKPIs {
   total_events: number;
+  active_safety_events?: number;
+  resolved_events?: number;
   real_events_count?: number;
   simulated_events_count?: number;
+  units_seen?: number;
   overall_status?: string;
   items_monitored?: number;
   risk_free_observation_ratio?: number;

@@ -20,6 +20,9 @@ from config import (
     WAREHOUSE_FLOOR_Y_RATIO,
     DEFAULT_ZONES,
     WAREHOUSE_DEFAULT_VIDEO_DIR,
+    WAREHOUSE_PRODUCT_CONF_THRESHOLD,
+    WAREHOUSE_TRACK_MAX_MISSED_FRAMES,
+    WAREHOUSE_TRACK_MAX_AGE_SECONDS,
 )
 from src.database.db_manager import DatabaseManager
 from src.camera.camera_manager import CameraManager, CameraStatus, CameraMode
@@ -47,7 +50,7 @@ class CareGuardBackendState:
     def __init__(self):
         self.db = DatabaseManager(db_path=DATABASE_PATH)
         self.camera = CameraManager()
-        self.detector = ObjectDetectionEngine(db_manager=self.db)
+        self.detector = ObjectDetectionEngine(db_manager=self.db, conf_threshold=WAREHOUSE_PRODUCT_CONF_THRESHOLD)
         try:
             self.detector.initialize()
             print("=" * 65)
@@ -70,6 +73,8 @@ class CareGuardBackendState:
             frame_width=640,
             frame_height=480,
             confirmation_frames=2,
+            max_missed_frames=WAREHOUSE_TRACK_MAX_MISSED_FRAMES,
+            max_track_age_seconds=WAREHOUSE_TRACK_MAX_AGE_SECONDS,
             floor_y_threshold_ratio=WAREHOUSE_FLOOR_Y_RATIO,
         )
 
@@ -653,29 +658,43 @@ class CareGuardBackendState:
                                 metadata=evt.metadata,
                             )
 
-                        # Authoritative active event assignment with sequential action support
-                        candidate_evt = new_events[-1]
+                        # Authoritative active event assignment with sequential action support & severity protection
+                        sorted_events = sorted(
+                            new_events,
+                            key=lambda e: SEVERITY_RANK.get(getattr(e, "risk_level", "GREEN"), 1),
+                            reverse=True,
+                        )
+                        candidate_evt = sorted_events[0]
                         candidate_evt.state = EventState.ACTIVE
                         candidate_evt.activated_at = now
                         candidate_evt.last_observed_time = now
                         self.latest_verified_event = candidate_evt
 
-                        if self.active_verified_event and self.active_verified_event.state == EventState.ACTIVE:
-                            # If a new distinct behaviour occurs (e.g. DROP -> KICK -> DRAG), transition prior event to RESOLVED
-                            if (candidate_evt.behaviour_type != self.active_verified_event.behaviour_type or
-                                candidate_evt.product_track_id != self.active_verified_event.product_track_id):
-                                self.active_verified_event.state = EventState.RESOLVED
-                                self.active_verified_event.resolved_at = now
+                        candidate_sev = SEVERITY_RANK.get(getattr(candidate_evt, "risk_level", "GREEN"), 1)
+                        active_sev = SEVERITY_RANK.get(getattr(self.active_verified_event, "risk_level", "GREEN"), 1) if self.active_verified_event else 0
+                        time_since_active = now - self.active_event_last_triggered_time
+
+                        # Protect high-severity events (e.g. RED / PRODUCT_DROPPED) from being squashed by lower severity events within 3.5s
+                        should_override = (
+                            self.active_verified_event is None
+                            or candidate_sev >= active_sev
+                            or time_since_active >= 3.5
+                        )
+
+                        if should_override:
+                            if self.active_verified_event and self.active_verified_event.state == EventState.ACTIVE:
+                                if (candidate_evt.behaviour_type != self.active_verified_event.behaviour_type or
+                                    candidate_evt.product_track_id != self.active_verified_event.product_track_id):
+                                    self.active_verified_event.state = EventState.RESOLVED
+                                    self.active_verified_event.resolved_at = now
                             
                             self.active_verified_event = candidate_evt
                             self.latest_event = candidate_evt
                             self.current_risk_level = candidate_evt.risk_level
                             self.active_event_last_triggered_time = now
                         else:
-                            self.active_verified_event = candidate_evt
-                            self.latest_event = candidate_evt
-                            self.current_risk_level = candidate_evt.risk_level
-                            self.active_event_last_triggered_time = now
+                            self.latest_event = self.active_verified_event
+                            self.current_risk_level = self.active_verified_event.risk_level
                     else:
                         # Normal frame without new violation: Apply temporal hysteresis grace period
                         if self.active_verified_event and self.active_verified_event.state == EventState.ACTIVE:

@@ -9,8 +9,12 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: #0b1120;
+  background-color: #f8fafc;
   color: #0f172a;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom animations */

@@ -224,14 +224,14 @@ class TestAll10WarehouseBehaviours(unittest.TestCase):
 
     def test_10_unsafe_loading_sequence(self):
         """Behaviour 10: Worker pulling out bottom item from underneath a stacked pile."""
-        # Frame 0 to 3: Stack exists with worker next to bottom box
-        # Frame 4: Worker pulls bottom box horizontally at speed >= 30 px/s while top box remains stationary
+        # Frame 0 to 2: Stack exists at rest with worker next to bottom box
+        # Frame 3+: Worker pulls bottom box horizontally at speed >= 30 px/s while top box remains stationary
         events = []
-        for i in range(6):
+        for i in range(7):
             t = i * 0.1
-            worker_x = 100 - i * 8
-            bottom_x = 180 - i * 8 # moving horizontally (~80 px/s)
-            top_x = 180            # stationary
+            worker_x = 100 - (max(0, i - 2) * 15)
+            bottom_x = 180 - (max(0, i - 2) * 15) # moves after resting stack established
+            top_x = 180                            # stationary overhead
 
             dets = [
                 DetectedObject(class_id=1, label="person", confidence=0.90, bbox=(worker_x, 260, 50, 120)),
