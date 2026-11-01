@@ -3,11 +3,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
+*.pyo
 
 # Virtual environments
 .venv/
 venv/
 env/
+
+# Environment variables & local configuration
+.env
+.env.local
+.env.*.local
 
 # Runtime SQLite databases & local state
 *.db
@@ -19,7 +25,11 @@ data/*.db
 data/evidence/
 data/backups/
 data/logs/
+logs/
 *.log
+
+# Keep reference evidence local
+data/evidence_samples/
 
 # Personal data, face images & webcam captures
 data/faces/
@@ -30,6 +40,15 @@ data/sample_mattress_*.jpg
 
 # Large video assets (kept locally, not tracked in git)
 data/videos/
+
+# Temporary frames, detection outputs, and crops
+data/frames/
+data/temp_frames/
+data/detections/
+data/crops/
+frames/
+crops/
+detections/
 
 # Research & experimental outputs
 data/research/
@@ -47,7 +66,7 @@ data/datasets/watchguard_assets_v1/
 frontend/node_modules/
 frontend/dist/
 
-# Test & coverage artifacts
+# Test & coverage artifacts & diagnostic reports
 *.tmp
 *.temp
 *.bak
@@ -58,6 +77,10 @@ frontend/dist/
 .mypy_cache/
 .coverage
 htmlcov/
+coverage.xml
+test-report.*
+report.html
+diagnostic_*.json
 
 # Editor / OS artifacts
 .idea/
@@ -66,3 +89,6 @@ htmlcov/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Local reference evidence - do not upload
+data/evidence_samples/
